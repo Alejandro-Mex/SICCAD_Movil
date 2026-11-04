@@ -29,11 +29,11 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Parchar wakelock_plus 1.2.8 en Flet 0.24.1 y Compilar APK
+      - name: Inyectar wakelock_plus 1.2.8 en pubspec.yaml y Compilar APK
         run: |
           yes | flutter doctor --android-licenses || true
           pip install "flet==0.24.1" "packaging<24.0" requests
-          python -c "import flet.cli.commands.build as b, inspect; p = inspect.getfile(b); txt = open(p).read(); txt = txt.replace('pubspec[\"dependency_overrides\"] = {}', 'pubspec[\"dependency_overrides\"] = {\"wakelock_plus\": \"1.2.8\"}'); open(p, 'w').write(txt); print('Parche wakelock_plus 1.2.8 aplicado en:', p)"
+          python -c "import flet.cli.commands.build as b, inspect; p = inspect.getfile(b); txt = open(p).read(); target = 'with open(pubspec_path, \"w\", encoding=\"utf8\") as f:'; patch = 'pubspec[\"dependency_overrides\"] = {\"wakelock_plus\": \"1.2.8\", \"package_info_plus\": \"8.0.2\"}\n        ' + target; assert target in txt, 'No se encontro target'; open(p, 'w').write(txt.replace(target, patch)); print('EXITO: pubspec.yaml parchado!')"
           flet build apk --project SICAD_Movil --no-rich-output -v
 
       - name: Subir APK listo para descargar

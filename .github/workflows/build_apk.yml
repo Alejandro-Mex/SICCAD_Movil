@@ -23,17 +23,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Configurar Flutter 3.24.0 (Exacto para Flet 0.24.1)
+      - name: Configurar Flutter 3.27.4
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.27.4'
           channel: 'stable'
 
       - name: Aceptar licencias de Android y Compilar APK
         run: |
           yes | flutter doctor --android-licenses || true
-          pip install "flet==0.24.1" "packaging<24.0" requests
-          flet build apk --project SICAD_Movil --no-rich-output -v
+          pip install "flet==0.27.6" requests
+          flet build apk --project SICAD_Movil --no-rich-output --yes -v
 
       - name: Subir APK listo para descargar
         uses: actions/upload-artifact@v4

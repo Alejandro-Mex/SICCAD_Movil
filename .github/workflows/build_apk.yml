@@ -23,10 +23,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Configurar Flutter 3.22.3
+      - name: Configurar Flutter 3.24.0 (Exacto para Flet 0.24.1)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.3'
+          flutter-version: '3.24.0'
           channel: 'stable'
 
       - name: Aceptar licencias de Android y Compilar APK

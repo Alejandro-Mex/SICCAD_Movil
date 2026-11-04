@@ -29,13 +29,11 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Fijar wakelock_plus compatible y Compilar APK
+      - name: Parchar wakelock_plus 1.2.8 en Flet 0.24.1 y Compilar APK
         run: |
-          git config --global user.email "sicad@merida.gob.mx"
-          git config --global user.name "SICAD Builder"
           yes | flutter doctor --android-licenses || true
           pip install "flet==0.24.1" "packaging<24.0" requests
-          python -c "open('pubspec_overrides.yaml', 'w').write('dependency_overrides:\n  wakelock_plus: 1.2.8\n  package_info_plus: 8.0.2\n')"
+          python -c "import flet.cli.commands.build as b, inspect; p = inspect.getfile(b); txt = open(p).read(); txt = txt.replace('pubspec[\"dependency_overrides\"] = {}', 'pubspec[\"dependency_overrides\"] = {\"wakelock_plus\": \"1.2.8\"}'); open(p, 'w').write(txt); print('Parche wakelock_plus 1.2.8 aplicado en:', p)"
           flet build apk --project SICAD_Movil --no-rich-output -v
 
       - name: Subir APK listo para descargar

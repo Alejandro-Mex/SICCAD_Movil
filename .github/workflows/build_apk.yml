@@ -23,11 +23,20 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Compilar APK (Flet instala su propio Flutter exacto)
+      - name: Configurar Flutter 3.24.0
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      - name: Fijar wakelock_plus compatible y Compilar APK
         run: |
-          yes | sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          pip install "flet==0.27.6" requests
-          flet build apk --project SICAD_Movil --no-rich-output -vv
+          git config --global user.email "sicad@merida.gob.mx"
+          git config --global user.name "SICAD Builder"
+          yes | flutter doctor --android-licenses || true
+          pip install "flet==0.24.1" "packaging<24.0" requests
+          python -c "open('pubspec_overrides.yaml', 'w').write('dependency_overrides:\n  wakelock_plus: 1.2.8\n  package_info_plus: 8.0.2\n')"
+          flet build apk --project SICAD_Movil --no-rich-output -v
 
       - name: Subir APK listo para descargar
         uses: actions/upload-artifact@v4

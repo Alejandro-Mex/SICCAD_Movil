@@ -1,0 +1,8 @@
+[project]
+name = "sicad-movil"
+version = "1.0.0"
+dependencies = ["flet==0.24.1", "requests"]
+
+[tool.flet.flutter.pubspec.dependency_overrides]
+wakelock_plus = "1.2.8"
+package_info_plus = "8.0.2"

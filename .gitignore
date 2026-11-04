@@ -1,0 +1,4 @@
+config/serviceAccountKey.json
+assets/serviceAccountKey.json
+__pycache__/
+build/

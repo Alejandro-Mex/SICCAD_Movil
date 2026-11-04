@@ -1,5 +1,5 @@
 [project]
-name = "sicad-movil"
+name = "SICCAD Movil"
 version = "1.0.0"
 dependencies = ["flet==0.24.1", "requests"]
 

@@ -15,4 +15,4 @@ ALTO_MOVIL = 820
 
 # CONFIGURACIÓN DE TU PROYECTO FIREBASE (Misma BD que la versión de escritorio)
 # Cuando conectes a producción, aquí solo pones el project_id que viene en tu serviceAccountKey.json
-FIREBASE_PROJECT_ID = "siccad-merida-cad"
+FIREBASE_PROJECT_ID = "siccad-merida-cad-6689c"

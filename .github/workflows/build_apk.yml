@@ -1,4 +1,4 @@
-name: Compilar APK SICAD
+name: Compilar APK SICCAD
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Compilar APK
+      - name: Compilar APK con nombre SICCAD MOVIL
         run: |
           yes | flutter doctor --android-licenses || true
           pip install "flet==0.24.1" "packaging<24.0" requests
@@ -39,5 +39,5 @@ jobs:
       - name: Subir APK listo para descargar
         uses: actions/upload-artifact@v4
         with:
-          name: SICAD_Movil_APK
+          name: SICCAD Movil APK
           path: build/apk/*.apk

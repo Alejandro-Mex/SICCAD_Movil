@@ -33,7 +33,7 @@ jobs:
         run: |
           yes | flutter doctor --android-licenses || true
           pip install "flet==0.27.6" requests
-          flet build apk --project SICAD_Movil --no-rich-output --yes -v
+          flet build apk --project SICAD_Movil --no-rich-output -v
 
       - name: Subir APK listo para descargar
         uses: actions/upload-artifact@v4

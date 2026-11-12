@@ -54,6 +54,8 @@ class FirebaseMobileClient:
 
         self.base_url = f"https://firestore.googleapis.com/v1/projects/{self.project_id}/databases/(default)/documents"
         self.usuario_actual = None
+        self.claves_en_rojo = set()
+        self.folios_en_rojo = set()
 
     @staticmethod
     def encriptar_password(password: str) -> str:
@@ -135,6 +137,66 @@ class FirebaseMobileClient:
             return False, f"Verifica tu conexión a internet: {e}"
 
     # ================= 1. NO INVENTARIABLES =================
+    def actualizar_datos_perfil_movil(self, datos_nuevos: dict):
+        """ Actualiza Nombres, Apellidos, Correo, Usuario y Contraseña desde la App Móvil """
+        if not self.usuario_actual:
+            return False, "No hay sesión activa."
+
+        nombres = datos_nuevos.get("nombres", "").strip()
+        apellidos = datos_nuevos.get("apellidos", "").strip()
+        correo = datos_nuevos.get("correo", "").strip()
+        nuevo_usuario = datos_nuevos.get("usuario", "").strip()
+        nueva_pass = datos_nuevos.get("contrasena", "").strip()
+
+        if not nombres or not apellidos or not nuevo_usuario:
+            return False, "Por favor completa Nombres, Apellidos y Usuario."
+
+        doc_id_actual = str(
+            self.usuario_actual.get("doc_id")
+            or self.usuario_actual.get("numero_empleado")
+            or self.usuario_actual.get("id_usuario")
+            or self.usuario_actual.get("usuario")
+        ).strip().replace("/", "_")
+
+        doc_actualizado = dict(self.usuario_actual)
+        doc_actualizado["nombres"] = nombres
+        doc_actualizado["apellidos"] = apellidos
+        doc_actualizado["correo"] = correo
+        doc_actualizado["usuario"] = nuevo_usuario
+        doc_actualizado["numero_empleado"] = nuevo_usuario
+
+        if nueva_pass:
+            doc_actualizado["contrasena"] = self.encriptar_password(nueva_pass)
+            doc_actualizado["password_visible"] = nueva_pass
+
+        try:
+            nuevo_doc_id = nuevo_usuario.replace("/", "_")
+            rol_actual = str(self.usuario_actual.get("rol", "")).lower()
+
+            if self.db_firestore is not None:
+                if rol_actual != "estudiante" and nuevo_doc_id != doc_id_actual:
+                    doc_actualizado["id_usuario"] = nuevo_usuario
+                    doc_actualizado["doc_id"] = nuevo_doc_id
+                    self.db_firestore.collection("usuarios").document(nuevo_doc_id).set(doc_actualizado, merge=True)
+                    self.db_firestore.collection("usuarios").document(doc_id_actual).delete()
+                else:
+                    self.db_firestore.collection("usuarios").document(doc_id_actual).set(doc_actualizado, merge=True)
+            else:
+                params = "&".join([f"updateMask.fieldPaths={k}" for k in doc_actualizado.keys()])
+                if rol_actual != "estudiante" and nuevo_doc_id != doc_id_actual:
+                    doc_actualizado["id_usuario"] = nuevo_usuario
+                    doc_actualizado["doc_id"] = nuevo_doc_id
+                    requests.patch(f"{self.base_url}/usuarios/{nuevo_doc_id}?{params}", json=self._empaquetar_firestore(doc_actualizado), timeout=10)
+                    requests.delete(f"{self.base_url}/usuarios/{doc_id_actual}", timeout=10)
+                else:
+                    requests.patch(f"{self.base_url}/usuarios/{doc_id_actual}?{params}", json=self._empaquetar_firestore(doc_actualizado), timeout=10)
+
+            self.usuario_actual = doc_actualizado
+            return True, "Datos actualizados correctamente."
+        except Exception as e:
+            return False, f"Error al actualizar: {e}"
+
+    # ================= 1. NO INVENTARIABLES (CON MEMORIA DE FILAS EN ROJO) =================
     def obtener_no_inventariables_empleado(self):
         if not self.usuario_actual:
             return []
@@ -145,8 +207,10 @@ class FirebaseMobileClient:
         if self.db_firestore is not None:
             for doc in self.db_firestore.collection("no_inventariables").stream():
                 item = doc.to_dict()
-                item["clave"] = item.get("clave", doc.id)
-                item["en_revision_rojo"] = False
+                clave_str = str(item.get("clave", doc.id)).strip()
+                item["clave"] = clave_str
+                # Conserva el color rojo si estaba en revisión
+                item["en_revision_rojo"] = (clave_str in self.claves_en_rojo)
                 if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
                     lista.append(item)
             return lista
@@ -156,7 +220,9 @@ class FirebaseMobileClient:
             if resp.status_code == 200:
                 for doc in resp.json().get("documents", []):
                     item = self._desempaquetar_firestore(doc)
-                    item["en_revision_rojo"] = False
+                    clave_str = str(item.get("clave", item.get("doc_id", ""))).strip()
+                    item["clave"] = clave_str
+                    item["en_revision_rojo"] = (clave_str in self.claves_en_rojo)
                     if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
                         lista.append(item)
         except Exception:
@@ -164,7 +230,11 @@ class FirebaseMobileClient:
         return lista
 
     def actualizar_ubicacion_no_inventariable(self, clave: str, nueva_ubicacion: str):
-        doc_id = str(clave).strip().replace("/", "_")
+        clave_clean = str(clave).strip()
+        doc_id = clave_clean.replace("/", "_")
+        # Al guardar desde el detalle, solo desmarca (o mantiene el resto en rojo sin reiniciar la tabla)
+        
+
         if self.db_firestore is not None:
             self.db_firestore.collection("no_inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})
             return True, "Ubicación actualizada."
@@ -173,6 +243,52 @@ class FirebaseMobileClient:
         requests.patch(url, json=self._empaquetar_firestore({"ubicacion": nueva_ubicacion}), timeout=10)
         return True, "Ubicación actualizada."
 
+    # ================= 2. INVENTARIABLES (CON MEMORIA DE FILAS EN ROJO) =================
+    def obtener_inventariables_empleado(self):
+        if not self.usuario_actual:
+            return []
+        num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
+        nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
+
+        lista = []
+        if self.db_firestore is not None:
+            for doc in self.db_firestore.collection("inventariables").stream():
+                item = doc.to_dict()
+                folio_str = str(item.get("folio", doc.id)).strip()
+                item["folio"] = folio_str
+                # Conserva el color rojo si estaba en revisión
+                item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
+                if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
+                    lista.append(item)
+            return lista
+
+        try:
+            resp = requests.get(f"{self.base_url}/inventariables", timeout=10)
+            if resp.status_code == 200:
+                for doc in resp.json().get("documents", []):
+                    item = self._desempaquetar_firestore(doc)
+                    folio_str = str(item.get("folio", item.get("doc_id", ""))).strip()
+                    item["folio"] = folio_str
+                    item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
+                    if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
+                        lista.append(item)
+        except Exception:
+            pass
+        return lista
+
+    def actualizar_ubicacion_inventariable(self, folio: str, nueva_ubicacion: str):
+        folio_clean = str(folio).strip()
+        doc_id = folio_clean.replace("/", "_")
+        
+
+        if self.db_firestore is not None:
+            self.db_firestore.collection("inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})
+            return True, "Ubicación actualizada."
+
+        url = f"{self.base_url}/inventariables/{doc_id}?updateMask.fieldPaths=ubicacion"
+        requests.patch(url, json=self._empaquetar_firestore({"ubicacion": nueva_ubicacion}), timeout=10)
+        return True, "Ubicación actualizada."
+    
     def enviar_reporte_no_inventariable(self, datos_item: dict, comentario: str):
         clave = str(datos_item.get("clave", "")).strip()
         doc_id = clave.replace("/", "_")
@@ -199,43 +315,6 @@ class FirebaseMobileClient:
         return True, "Reporte enviado exitosamente."
 
     # ================= 2. INVENTARIABLES =================
-    def obtener_inventariables_empleado(self):
-        if not self.usuario_actual:
-            return []
-        num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
-        nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
-
-        lista = []
-        if self.db_firestore is not None:
-            for doc in self.db_firestore.collection("inventariables").stream():
-                item = doc.to_dict()
-                item["folio"] = str(item.get("folio", doc.id))
-                item["en_revision_rojo"] = False
-                if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
-                    lista.append(item)
-            return lista
-
-        try:
-            resp = requests.get(f"{self.base_url}/inventariables", timeout=10)
-            if resp.status_code == 200:
-                for doc in resp.json().get("documents", []):
-                    item = self._desempaquetar_firestore(doc)
-                    item["en_revision_rojo"] = False
-                    if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
-                        lista.append(item)
-        except Exception:
-            pass
-        return lista
-
-    def actualizar_ubicacion_inventariable(self, folio: str, nueva_ubicacion: str):
-        doc_id = str(folio).strip().replace("/", "_")
-        if self.db_firestore is not None:
-            self.db_firestore.collection("inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})
-            return True, "Ubicación actualizada."
-
-        url = f"{self.base_url}/inventariables/{doc_id}?updateMask.fieldPaths=ubicacion"
-        requests.patch(url, json=self._empaquetar_firestore({"ubicacion": nueva_ubicacion}), timeout=10)
-        return True, "Ubicación actualizada."
 
     def enviar_reporte_inventariable(self, datos_item: dict, comentario: str):
         folio = str(datos_item.get("folio", "")).strip()

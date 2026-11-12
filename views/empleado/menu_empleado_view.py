@@ -14,7 +14,8 @@ class MenuEmpleadoView(ft.Container):
         ir_a_no_inventariables=None,
         ir_a_inventariables=None,
         ir_a_consumibles=None,
-        ir_a_alumnos=None
+        ir_a_alumnos=None,
+        ir_a_editar_datos=None
     ):
         super().__init__()
         self.page = page
@@ -24,6 +25,7 @@ class MenuEmpleadoView(ft.Container):
         self.ir_a_inventariables = ir_a_inventariables
         self.ir_a_consumibles = ir_a_consumibles
         self.ir_a_alumnos = ir_a_alumnos
+        self.ir_a_editar_datos = ir_a_editar_datos
 
         self.expand = True
         self.bgcolor = COLOR_BLANCO
@@ -232,6 +234,20 @@ class MenuEmpleadoView(ft.Container):
                 )
             )
 
+        # 5. Editar Datos (Disponible para todos los empleados)
+        ico_edit = self._obtener_icono("editar_datos.png", ft.icons.MANAGE_ACCOUNTS, COLOR_MORADO_FONDO)
+        botones_visibles.append(
+            self._crear_boton_menu(
+                texto="Editar Datos",
+                widget_icono=ico_edit,
+                bg_color=COLOR_AMARILLO_TARJETA,
+                borde_color=COLOR_MORADO_FONDO,
+                texto_color=COLOR_MORADO_FONDO,
+                tamano_fuente=21,
+                comando=self.ir_a_editar_datos
+            )
+        )
+        
         # ================= 4. MASCOTA INFERIOR (CADcito) =================
         ruta_mascota = "logos/mascota_cad.png"
         existe_mascota = os.path.exists(os.path.join("assets", ruta_mascota))

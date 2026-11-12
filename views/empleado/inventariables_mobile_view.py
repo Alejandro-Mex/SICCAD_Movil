@@ -250,14 +250,21 @@ class ListaInventariablesMobileView(ft.Container):
         self._renderizar_filas()
 
     def clic_poner_todos_rojo(self, e):
+        """ Pone todos los registros en ROJO y los mantiene en memoria aunque entres al Detalle """
         for item in self.items:
+            folio_str = str(item.get("folio", "")).strip()
             item["en_revision_rojo"] = True
+            self.firebase.folios_en_rojo.add(folio_str)
         self._renderizar_filas()
 
     def clic_regresar_a_amarillo(self, e):
+        """ Regresa únicamente el registro seleccionado a AMARILLO """
         if self.indice_seleccionado is None:
             return
-        self.items[self.indice_seleccionado]["en_revision_rojo"] = False
+        item_sel = self.items[self.indice_seleccionado]
+        folio_str = str(item_sel.get("folio", "")).strip()
+        item_sel["en_revision_rojo"] = False
+        self.firebase.folios_en_rojo.discard(folio_str)
         self._renderizar_filas()
 
 

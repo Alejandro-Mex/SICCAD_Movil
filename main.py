@@ -27,6 +27,7 @@ from views.estudiante.menu_estudiante_view import MenuEstudianteView
 from views.estudiante.consulta_horas_estudiante_view import ConsultaHorasEstudianteView
 from views.estudiante.justificacion_estudiante_view import JustificacionEstudianteView
 from views.estudiante.agregar_horas_estudiante_view import AgregarHorasEstudianteView
+from views.editar_datos_mobile_view import EditarDatosMobileView
 
 
 class AppSICADMovil:
@@ -112,7 +113,8 @@ class AppSICADMovil:
                     ir_a_no_inventariables=self.ir_a_lista_no_inventariables,
                     ir_a_inventariables=self.ir_a_lista_inventariables,
                     ir_a_consumibles=self.ir_a_lista_consumibles,
-                    ir_a_alumnos=self.ir_a_lista_alumnos
+                    ir_a_alumnos=self.ir_a_lista_alumnos,
+                    ir_a_editar_datos=self.ir_a_editar_datos_movil
                 ),
                 accion_boton_atras=self.mostrar_login
             )
@@ -230,9 +232,20 @@ class AppSICADMovil:
                 datos_estudiante=datos_estudiante,
                 al_cerrar_sesion=self.mostrar_login,
                 ir_a_horas=self.ir_a_consulta_horas_estudiante,
-                ir_a_agregar_horas=self.ir_a_agregar_horas_estudiante
+                ir_a_agregar_horas=self.ir_a_agregar_horas_estudiante,
+                ir_a_editar_datos=self.ir_a_editar_datos_movil
             ),
             accion_boton_atras=self.mostrar_login
+        )
+
+    def ir_a_editar_datos_movil(self):
+        self.cambiar_pantalla(
+            EditarDatosMobileView(
+                page=self.page,
+                datos_usuario=self.firebase.usuario_actual,
+                al_regresar=self.ir_a_menu_principal
+            ),
+            accion_boton_atras=self.ir_a_menu_principal
         )
 
     def ir_a_consulta_horas_estudiante(self):

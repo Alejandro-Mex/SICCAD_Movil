@@ -214,16 +214,21 @@ class ListaNoInventariablesMobileView(ft.Container):
         self._renderizar_filas()
 
     def clic_poner_todos_rojo(self, e):
-        """ Botón 1: Pone todos los registros de la tabla en color ROJO """
+        """ Botón 1: Pone todos los registros en ROJO y los guarda en memoria para que no se borren al ir al Detalle """
         for item in self.items:
+            clave_str = str(item.get("clave", "")).strip()
             item["en_revision_rojo"] = True
+            self.firebase.claves_en_rojo.add(clave_str)
         self._renderizar_filas()
 
     def clic_regresar_a_amarillo(self, e):
-        """ Botón 2: Regresa el registro seleccionado a su color AMARILLO / normal """
+        """ Botón 2: Regresa únicamente el registro seleccionado a AMARILLO """
         if self.indice_seleccionado is None:
             return
-        self.items[self.indice_seleccionado]["en_revision_rojo"] = False
+        item_sel = self.items[self.indice_seleccionado]
+        clave_str = str(item_sel.get("clave", "")).strip()
+        item_sel["en_revision_rojo"] = False
+        self.firebase.claves_en_rojo.discard(clave_str)
         self._renderizar_filas()
 
 

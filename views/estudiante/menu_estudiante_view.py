@@ -12,7 +12,8 @@ class MenuEstudianteView(ft.Container):
         self, page: ft.Page, datos_estudiante: dict,
         al_cerrar_sesion=None,
         ir_a_horas=None,
-        ir_a_agregar_horas=None
+        ir_a_agregar_horas=None,
+        ir_a_editar_datos=None
     ):
         super().__init__()
         self.page = page
@@ -20,6 +21,7 @@ class MenuEstudianteView(ft.Container):
         self.al_cerrar_sesion = al_cerrar_sesion
         self.ir_a_horas = ir_a_horas
         self.ir_a_agregar_horas = ir_a_agregar_horas
+        self.ir_a_editar_datos = ir_a_editar_datos
 
         self.expand = True
         self.bgcolor = COLOR_BLANCO
@@ -173,6 +175,14 @@ class MenuEstudianteView(ft.Container):
             comando=self.ir_a_agregar_horas
         )
 
+        ico_editar = self._obtener_icono("editar_datos.png", ft.icons.MANAGE_ACCOUNTS, tamano=50)
+        btn_editar_datos = self._crear_boton_estudiante(
+            texto="Editar Datos",
+            widget_icono=ico_editar,
+            tamano_fuente=21,
+            comando=self.ir_a_editar_datos
+        )
+
         # ================= 4. MASCOTA INFERIOR (CADcito) =================
         ruta_mascota = "logos/mascota_cad.png"
         existe_mascota = os.path.exists(os.path.join("assets", ruta_mascota))
@@ -200,7 +210,8 @@ class MenuEstudianteView(ft.Container):
                         seccion_saludo,
                         ft.Container(height=6),
                         btn_horas,
-                        btn_agregar_horas
+                        btn_agregar_horas,
+                        btn_editar_datos
                     ]
                 ),
                 ft.Container(

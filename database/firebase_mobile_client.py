@@ -116,6 +116,7 @@ class FirebaseMobileClient:
                 if not datos or datos.get("contrasena") not in [pass_hash, password]:
                     return False, "Usuario o contraseña incorrectos."
 
+                datos["password_visible"] = password  # <-- GUARDA LA CONTRASEÑA PARA VERLA AL EDITAR DATOS
                 self.usuario_actual = datos
                 return True, datos
             except Exception as e:
@@ -123,19 +124,20 @@ class FirebaseMobileClient:
 
         # B) Si estamos en el celular Android (.apk) vía REST:
         try:
-            resp = requests.get(f"{self.base_url}/usuarios", timeout=10)
+            resp = requests.get(f"{self.base_url}/usuarios?pageSize=300", timeout=10)
             if resp.status_code == 200:
                 for doc in resp.json().get("documents", []):
                     d = self._desempaquetar_firestore(doc)
                     id_doc = d.get("doc_id", "")
                     if usuario in [id_doc, str(d.get("numero_empleado", "")), str(d.get("usuario", ""))]:
                         if d.get("contrasena") in [pass_hash, password]:
+                            d["password_visible"] = password  # <-- GUARDA LA CONTRASEÑA PARA VERLA AL EDITAR DATOS
                             self.usuario_actual = d
                             return True, d
             return False, "Usuario o contraseña incorrectos."
         except Exception as e:
             return False, f"Verifica tu conexión a internet: {e}"
-
+        
     # ================= 1. NO INVENTARIABLES =================
     def actualizar_datos_perfil_movil(self, datos_nuevos: dict):
         """ Actualiza Nombres, Apellidos, Correo, Usuario y Contraseña desde la App Móvil """
@@ -233,7 +235,7 @@ class FirebaseMobileClient:
         clave_clean = str(clave).strip()
         doc_id = clave_clean.replace("/", "_")
         # Al guardar desde el detalle, solo desmarca (o mantiene el resto en rojo sin reiniciar la tabla)
-        
+        self.claves_en_rojo.discard(clave_clean)
 
         if self.db_firestore is not None:
             self.db_firestore.collection("no_inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})
@@ -279,7 +281,7 @@ class FirebaseMobileClient:
     def actualizar_ubicacion_inventariable(self, folio: str, nueva_ubicacion: str):
         folio_clean = str(folio).strip()
         doc_id = folio_clean.replace("/", "_")
-        
+        self.folios_en_rojo.discard(folio_clean)
 
         if self.db_firestore is not None:
             self.db_firestore.collection("inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})

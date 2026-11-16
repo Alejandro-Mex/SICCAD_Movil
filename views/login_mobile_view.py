@@ -74,7 +74,7 @@ class LoginMobileView(ft.Container):
             bgcolor=COLOR_BLANCO,
             color=COLOR_TEXTO_NEGRO,
             password=True,
-            can_reveal_password=False,
+            can_reveal_password=True,
             border_radius=25,
             border_width=0,
             height=46,

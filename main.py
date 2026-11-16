@@ -40,10 +40,11 @@ class AppSICADMovil:
         self.mostrar_login()
 
     def _configurar_pagina(self):
-        self.page.title = "SICAD Móvil"
+        self.page.title = "SICCAD Móvil"
         self.page.bgcolor = COLOR_MORADO_FONDO
         self.page.padding = 0
         self.page.theme_mode = ft.ThemeMode.LIGHT
+        self.page.window.full_screen = True
 
         self.page.fonts = {
             "Poppins": "fonts/Poppins-Regular.ttf",

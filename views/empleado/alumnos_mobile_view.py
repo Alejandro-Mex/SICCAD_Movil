@@ -6,14 +6,10 @@ from config.settings import (
     FAMILIA_FUENTE
 )
 from database.firebase_mobile_client import FirebaseMobileClient
+from utils.pdf_mobile_generator import generar_pdf_horas_alumno_movil
 
 
 class ListaAlumnosMobileView(ft.Container):
-    """
-    Pantalla 1 de Alumnos Móvil:
-    - Tabla de 1 columna ('Nombres').
-    - Doble clic sobre cualquier alumno abre la Pantalla 2 ('Horas hechas').
-    """
     def __init__(self, page: ft.Page, al_regresar, ir_a_horas_hechas):
         super().__init__()
         self.page = page
@@ -35,66 +31,33 @@ class ListaAlumnosMobileView(ft.Container):
         self._renderizar_filas()
 
     def _construir_interfaz(self):
-        # 1. Escudo superior
         ruta_escudo = "logos/escudo_merida.png"
         existe_escudo = os.path.exists(os.path.join("assets", ruta_escudo))
-
         widget_escudo = (
             ft.Image(src=ruta_escudo, width=85, height=95, fit=ft.ImageFit.CONTAIN)
             if existe_escudo
             else ft.Icon(name=ft.icons.ACCOUNT_BALANCE, color=COLOR_BLANCO, size=75)
         )
 
-        # 2. Título "Lista de alumnos"
         lbl_titulo = ft.Text(
             "Lista de alumnos",
-            font_family=FAMILIA_FUENTE,
-            size=23,
-            weight=ft.FontWeight.BOLD,
-            color=COLOR_BLANCO,
-            text_align=ft.TextAlign.CENTER
+            font_family=FAMILIA_FUENTE, size=23, weight=ft.FontWeight.BOLD,
+            color=COLOR_BLANCO, text_align=ft.TextAlign.CENTER
         )
 
-        # 3. Cabecera de la Tabla ("Nombres")
         header_tabla = ft.Container(
-            bgcolor=COLOR_AMARILLO_TARJETA,
-            height=58,
-            border=ft.border.all(2, COLOR_BLANCO),
-            alignment=ft.alignment.center,
-            content=ft.Text(
-                "Nombres",
-                font_family=FAMILIA_FUENTE,
-                size=21,
-                weight=ft.FontWeight.BOLD,
-                color=COLOR_MORADO_FONDO
-            )
+            bgcolor=COLOR_AMARILLO_TARJETA, height=58,
+            border=ft.border.all(2, COLOR_BLANCO), alignment=ft.alignment.center,
+            content=ft.Text("Nombres", font_family=FAMILIA_FUENTE, size=21, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO)
         )
 
         contenedor_tabla = ft.Container(
-            bgcolor=COLOR_AMARILLO_TARJETA,
-            padding=3,
-            width=335,
-            height=380,
-            content=ft.Column(
-                spacing=3,
-                controls=[
-                    header_tabla,
-                    ft.Container(
-                        expand=True,
-                        content=self.columna_filas
-                    )
-                ]
-            )
+            bgcolor=COLOR_AMARILLO_TARJETA, padding=3, width=335, height=380,
+            content=ft.Column(spacing=3, controls=[header_tabla, ft.Container(expand=True, content=self.columna_filas)])
         )
 
         btn_volver_menu = ft.TextButton(
-            content=ft.Text(
-                "« Volver al menú",
-                font_family=FAMILIA_FUENTE,
-                size=14,
-                weight=ft.FontWeight.BOLD,
-                color=COLOR_BLANCO
-            ),
+            content=ft.Text("« Volver al menú", font_family=FAMILIA_FUENTE, size=14, weight=ft.FontWeight.BOLD, color=COLOR_BLANCO),
             on_click=lambda e: self.al_regresar()
         )
 
@@ -103,19 +66,10 @@ class ListaAlumnosMobileView(ft.Container):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             expand=True,
             controls=[
-                ft.Container(
-                    padding=ft.padding.only(top=15),
-                    content=ft.GestureDetector(
-                        on_tap=lambda e: self.al_regresar(),
-                        content=widget_escudo
-                    )
-                ),
+                ft.Container(padding=ft.padding.only(top=15), content=ft.GestureDetector(on_tap=lambda e: self.al_regresar(), content=widget_escudo)),
                 lbl_titulo,
                 contenedor_tabla,
-                ft.Container(
-                    padding=ft.padding.only(bottom=10),
-                    content=btn_volver_menu
-                )
+                ft.Container(padding=ft.padding.only(bottom=10), content=btn_volver_menu)
             ]
         )
 
@@ -127,20 +81,11 @@ class ListaAlumnosMobileView(ft.Container):
             color_fondo = "#EAE0F6" if esta_seleccionado else COLOR_BLANCO
 
             fila = ft.Container(
-                bgcolor=color_fondo,
-                height=64,
+                bgcolor=color_fondo, height=64,
                 border=ft.border.all(2.5, COLOR_AMARILLO_TARJETA),
-                alignment=ft.alignment.center,
-                ink=True,
+                alignment=ft.alignment.center, ink=True,
                 on_click=lambda e, i=idx: self._manejar_clic_fila(i),
-                content=ft.Text(
-                    str(alumno.get("nombre_mostrar", "")),
-                    font_family=FAMILIA_FUENTE,
-                    size=17,
-                    weight=ft.FontWeight.W_500,
-                    color=COLOR_MORADO_FONDO,
-                    text_align=ft.TextAlign.CENTER
-                )
+                content=ft.Text(str(alumno.get("nombre_mostrar", "")), font_family=FAMILIA_FUENTE, size=17, weight=ft.FontWeight.W_500, color=COLOR_MORADO_FONDO, text_align=ft.TextAlign.CENTER)
             )
             self.columna_filas.controls.append(fila)
 
@@ -149,7 +94,6 @@ class ListaAlumnosMobileView(ft.Container):
     def _manejar_clic_fila(self, idx: int):
         ahora = time.time()
         if idx == self.ultimo_indice_clic and (ahora - self.ultimo_clic_tiempo) < 0.45:
-            # Doble clic -> Abre la tabla de 'Horas hechas' de este alumno
             self.ir_a_horas_hechas(self.alumnos[idx])
             return
 
@@ -160,10 +104,7 @@ class ListaAlumnosMobileView(ft.Container):
 
 
 class HorasHechasAlumnoMobileView(ft.Container):
-    """
-    Pantalla 2 de Alumnos Móvil ('Horas hechas'):
-    - Tabla de 2 columnas (Fecha | Horas) con las asistencias del alumno seleccionado.
-    """
+    """ Pantalla 2 de Alumnos Móvil ('Horas hechas') con botón 'Imprimir reporte PDF' """
     def __init__(self, page: ft.Page, datos_alumno: dict, al_regresar):
         super().__init__()
         self.page = page
@@ -173,7 +114,7 @@ class HorasHechasAlumnoMobileView(ft.Container):
 
         self.expand = True
         self.bgcolor = COLOR_MORADO_FONDO
-        self.padding = ft.padding.symmetric(horizontal=22, vertical=15)
+        self.padding = ft.padding.symmetric(horizontal=22, vertical=12)
 
         self.registros_horas = self.firebase.obtener_horas_hechas_alumno(self.datos_alumno)
         self.columna_filas = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
@@ -182,86 +123,50 @@ class HorasHechasAlumnoMobileView(ft.Container):
         self._renderizar_filas()
 
     def _construir_interfaz(self):
-        # 1. Escudo superior
         ruta_escudo = "logos/escudo_merida.png"
         existe_escudo = os.path.exists(os.path.join("assets", ruta_escudo))
-
         widget_escudo = (
-            ft.Image(src=ruta_escudo, width=85, height=95, fit=ft.ImageFit.CONTAIN)
+            ft.Image(src=ruta_escudo, width=80, height=90, fit=ft.ImageFit.CONTAIN)
             if existe_escudo
-            else ft.Icon(name=ft.icons.ACCOUNT_BALANCE, color=COLOR_BLANCO, size=75)
+            else ft.Icon(name=ft.icons.ACCOUNT_BALANCE, color=COLOR_BLANCO, size=70)
         )
 
-        # 2. Título "Horas hechas"
         lbl_titulo = ft.Text(
             "Horas hechas",
-            font_family=FAMILIA_FUENTE,
-            size=23,
-            weight=ft.FontWeight.BOLD,
-            color=COLOR_BLANCO,
-            text_align=ft.TextAlign.CENTER
+            font_family=FAMILIA_FUENTE, size=23, weight=ft.FontWeight.BOLD,
+            color=COLOR_BLANCO, text_align=ft.TextAlign.CENTER
         )
 
-        # 3. Cabecera de 2 Columnas: Fecha (50%) | Horas (50%)
         header_tabla = ft.Row(
             spacing=3,
             controls=[
                 ft.Container(
-                    expand=5,
-                    height=58,
-                    bgcolor=COLOR_AMARILLO_TARJETA,
-                    border=ft.border.all(2, COLOR_BLANCO),
-                    alignment=ft.alignment.center,
-                    content=ft.Text(
-                        "Fecha",
-                        font_family=FAMILIA_FUENTE,
-                        size=20,
-                        weight=ft.FontWeight.BOLD,
-                        color=COLOR_MORADO_FONDO
-                    )
+                    expand=5, height=54, bgcolor=COLOR_AMARILLO_TARJETA,
+                    border=ft.border.all(2, COLOR_BLANCO), alignment=ft.alignment.center,
+                    content=ft.Text("Fecha", font_family=FAMILIA_FUENTE, size=19, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO)
                 ),
                 ft.Container(
-                    expand=5,
-                    height=58,
-                    bgcolor=COLOR_AMARILLO_TARJETA,
-                    border=ft.border.all(2, COLOR_BLANCO),
-                    alignment=ft.alignment.center,
-                    content=ft.Text(
-                        "Horas",
-                        font_family=FAMILIA_FUENTE,
-                        size=20,
-                        weight=ft.FontWeight.BOLD,
-                        color=COLOR_MORADO_FONDO
-                    )
+                    expand=5, height=54, bgcolor=COLOR_AMARILLO_TARJETA,
+                    border=ft.border.all(2, COLOR_BLANCO), alignment=ft.alignment.center,
+                    content=ft.Text("Horas", font_family=FAMILIA_FUENTE, size=19, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO)
                 )
             ]
         )
 
         contenedor_tabla = ft.Container(
-            bgcolor=COLOR_AMARILLO_TARJETA,
-            padding=3,
-            width=340,
-            height=380,
-            content=ft.Column(
-                spacing=3,
-                controls=[
-                    header_tabla,
-                    ft.Container(
-                        expand=True,
-                        content=self.columna_filas
-                    )
-                ]
-            )
+            bgcolor=COLOR_AMARILLO_TARJETA, padding=3, width=340, height=345,
+            content=ft.Column(spacing=3, controls=[header_tabla, ft.Container(expand=True, content=self.columna_filas)])
+        )
+
+        btn_imprimir_pdf = ft.ElevatedButton(
+            content=ft.Text("Imprimir reporte PDF", font_family=FAMILIA_FUENTE, size=16, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO),
+            bgcolor=COLOR_AMARILLO_TARJETA, width=255, height=48,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=24)),
+            on_click=self.clic_imprimir_pdf
         )
 
         btn_volver = ft.TextButton(
-            content=ft.Text(
-                "« Volver a lista de alumnos",
-                font_family=FAMILIA_FUENTE,
-                size=14,
-                weight=ft.FontWeight.BOLD,
-                color=COLOR_BLANCO
-            ),
+            content=ft.Text("« Volver a lista de alumnos", font_family=FAMILIA_FUENTE, size=14, weight=ft.FontWeight.BOLD, color=COLOR_BLANCO),
             on_click=lambda e: self.al_regresar()
         )
 
@@ -270,18 +175,13 @@ class HorasHechasAlumnoMobileView(ft.Container):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             expand=True,
             controls=[
-                ft.Container(
-                    padding=ft.padding.only(top=15),
-                    content=ft.GestureDetector(
-                        on_tap=lambda e: self.al_regresar(),
-                        content=widget_escudo
-                    )
-                ),
+                ft.GestureDetector(on_tap=lambda e: self.al_regresar(), content=widget_escudo),
                 lbl_titulo,
                 contenedor_tabla,
-                ft.Container(
-                    padding=ft.padding.only(bottom=10),
-                    content=btn_volver
+                ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=6,
+                    controls=[btn_imprimir_pdf, btn_volver]
                 )
             ]
         )
@@ -294,35 +194,35 @@ class HorasHechasAlumnoMobileView(ft.Container):
                 spacing=3,
                 controls=[
                     ft.Container(
-                        expand=5,
-                        height=64,
-                        bgcolor=COLOR_BLANCO,
-                        border=ft.border.all(2, COLOR_AMARILLO_TARJETA),
-                        alignment=ft.alignment.center,
-                        content=ft.Text(
-                            str(reg.get("fecha", "")),
-                            font_family=FAMILIA_FUENTE,
-                            size=16,
-                            weight=ft.FontWeight.W_500,
-                            color=COLOR_MORADO_FONDO
-                        )
+                        expand=5, height=60, bgcolor=COLOR_BLANCO,
+                        border=ft.border.all(2, COLOR_AMARILLO_TARJETA), alignment=ft.alignment.center,
+                        content=ft.Text(str(reg.get("fecha", "")), font_family=FAMILIA_FUENTE, size=16, weight=ft.FontWeight.W_500, color=COLOR_MORADO_FONDO)
                     ),
                     ft.Container(
-                        expand=5,
-                        height=64,
-                        bgcolor=COLOR_BLANCO,
-                        border=ft.border.all(2, COLOR_AMARILLO_TARJETA),
-                        alignment=ft.alignment.center,
-                        content=ft.Text(
-                            str(reg.get("horas", "")),
-                            font_family=FAMILIA_FUENTE,
-                            size=17,
-                            weight=ft.FontWeight.W_500,
-                            color=COLOR_MORADO_FONDO
-                        )
+                        expand=5, height=60, bgcolor=COLOR_BLANCO,
+                        border=ft.border.all(2, COLOR_AMARILLO_TARJETA), alignment=ft.alignment.center,
+                        content=ft.Text(str(reg.get("horas", "")), font_family=FAMILIA_FUENTE, size=17, weight=ft.FontWeight.W_500, color=COLOR_MORADO_FONDO)
                     )
                 ]
             )
             self.columna_filas.controls.append(fila)
 
+        self.page.update()
+
+    def clic_imprimir_pdf(self, e):
+        exito, msg = generar_pdf_horas_alumno_movil(self.datos_alumno, self.registros_horas)
+
+        def cerrar(ev):
+            dlg.open = False
+            self.page.update()
+
+        dlg = ft.AlertDialog(
+            modal=True, bgcolor=COLOR_BLANCO, shape=ft.RoundedRectangleBorder(radius=20),
+            title=ft.Text("Reporte PDF" if exito else "Error", font_family=FAMILIA_FUENTE, size=17, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO, text_align=ft.TextAlign.CENTER),
+            content=ft.Text(msg, font_family=FAMILIA_FUENTE, size=14, color="#000000", text_align=ft.TextAlign.CENTER),
+            actions=[ft.ElevatedButton(text="Aceptar", bgcolor=COLOR_MORADO_FONDO, color=COLOR_BLANCO, on_click=cerrar)],
+            actions_alignment=ft.MainAxisAlignment.CENTER
+        )
+        self.page.dialog = dlg
+        dlg.open = True
         self.page.update()

@@ -7,11 +7,6 @@ from config.settings import FIREBASE_PROJECT_ID
 
 
 class FirebaseMobileClient:
-    """
-    Cliente Híbrido para SICAD Móvil:
-    - En PC (Simulador): Usa firebase_admin o API REST.
-    - En Android (.apk): Usa API REST oficial de Firestore (100% compatible con APK).
-    """
     _instancia = None
 
     def __new__(cls):
@@ -24,7 +19,6 @@ class FirebaseMobileClient:
         self.project_id = FIREBASE_PROJECT_ID
         self.db_firestore = None
 
-        # Detectar el project_id real desde config/serviceAccountKey.json (si existe)
         posibles_rutas = [
             os.path.join("config", "serviceAccountKey.json"),
             os.path.join("assets", "serviceAccountKey.json"),
@@ -41,7 +35,6 @@ class FirebaseMobileClient:
             except Exception:
                 pass
 
-            # Intentar cargar firebase_admin si estamos en PC
             try:
                 import firebase_admin
                 from firebase_admin import credentials, firestore
@@ -88,13 +81,12 @@ class FirebaseMobileClient:
                 fields[k] = {"stringValue": str(v)}
         return {"fields": fields}
 
-    # ================= LOGIN DUAL (EMPLEADO Y ESTUDIANTE) =================
+    # ================= LOGIN DUAL (EMPLEADO, ADMIN Y ESTUDIANTE) =================
     def validar_login_movil_empleado(self, usuario: str, password: str):
         usuario = str(usuario).strip()
         password = str(password).strip()
         pass_hash = self.encriptar_password(password)
 
-        # A) Si estamos en PC con firebase_admin:
         if self.db_firestore is not None:
             try:
                 doc_id = usuario.replace("/", "_")
@@ -116,13 +108,12 @@ class FirebaseMobileClient:
                 if not datos or datos.get("contrasena") not in [pass_hash, password]:
                     return False, "Usuario o contraseña incorrectos."
 
-                datos["password_visible"] = password  # <-- GUARDA LA CONTRASEÑA PARA VERLA AL EDITAR DATOS
+                datos["password_visible"] = password
                 self.usuario_actual = datos
                 return True, datos
             except Exception as e:
                 return False, f"Error de conexión: {e}"
 
-        # B) Si estamos en el celular Android (.apk) vía REST:
         try:
             resp = requests.get(f"{self.base_url}/usuarios?pageSize=300", timeout=10)
             if resp.status_code == 200:
@@ -131,16 +122,14 @@ class FirebaseMobileClient:
                     id_doc = d.get("doc_id", "")
                     if usuario in [id_doc, str(d.get("numero_empleado", "")), str(d.get("usuario", ""))]:
                         if d.get("contrasena") in [pass_hash, password]:
-                            d["password_visible"] = password  # <-- GUARDA LA CONTRASEÑA PARA VERLA AL EDITAR DATOS
+                            d["password_visible"] = password
                             self.usuario_actual = d
                             return True, d
             return False, "Usuario o contraseña incorrectos."
         except Exception as e:
             return False, f"Verifica tu conexión a internet: {e}"
-        
-    # ================= 1. NO INVENTARIABLES =================
+
     def actualizar_datos_perfil_movil(self, datos_nuevos: dict):
-        """ Actualiza Nombres, Apellidos, Correo, Usuario y Contraseña desde la App Móvil """
         if not self.usuario_actual:
             return False, "No hay sesión activa."
 
@@ -198,12 +187,14 @@ class FirebaseMobileClient:
         except Exception as e:
             return False, f"Error al actualizar: {e}"
 
-    # ================= 1. NO INVENTARIABLES (CON MEMORIA DE FILAS EN ROJO) =================
+    # ================= 1. NO INVENTARIABLES =================
     def obtener_no_inventariables_empleado(self):
         if not self.usuario_actual:
             return []
+        rol = str(self.usuario_actual.get("rol", "")).strip().lower()
         num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
         nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
+        es_admin = (rol == "admin" or num_emp.lower() == "admin")
 
         lista = []
         if self.db_firestore is not None:
@@ -211,21 +202,20 @@ class FirebaseMobileClient:
                 item = doc.to_dict()
                 clave_str = str(item.get("clave", doc.id)).strip()
                 item["clave"] = clave_str
-                # Conserva el color rojo si estaba en revisión
                 item["en_revision_rojo"] = (clave_str in self.claves_en_rojo)
-                if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
+                if es_admin or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
                     lista.append(item)
             return lista
 
         try:
-            resp = requests.get(f"{self.base_url}/no_inventariables", timeout=10)
+            resp = requests.get(f"{self.base_url}/no_inventariables?pageSize=300", timeout=10)
             if resp.status_code == 200:
                 for doc in resp.json().get("documents", []):
                     item = self._desempaquetar_firestore(doc)
                     clave_str = str(item.get("clave", item.get("doc_id", ""))).strip()
                     item["clave"] = clave_str
                     item["en_revision_rojo"] = (clave_str in self.claves_en_rojo)
-                    if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
+                    if es_admin or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
                         lista.append(item)
         except Exception:
             pass
@@ -234,63 +224,18 @@ class FirebaseMobileClient:
     def actualizar_ubicacion_no_inventariable(self, clave: str, nueva_ubicacion: str):
         clave_clean = str(clave).strip()
         doc_id = clave_clean.replace("/", "_")
-        # Al guardar desde el detalle, solo desmarca (o mantiene el resto en rojo sin reiniciar la tabla)
+        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
         self.claves_en_rojo.discard(clave_clean)
 
+        cambios = {"ubicacion": nueva_ubicacion, "ultima_actualizacion": fecha_hoy}
         if self.db_firestore is not None:
-            self.db_firestore.collection("no_inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})
+            self.db_firestore.collection("no_inventariables").document(doc_id).update(cambios)
             return True, "Ubicación actualizada."
 
-        url = f"{self.base_url}/no_inventariables/{doc_id}?updateMask.fieldPaths=ubicacion"
-        requests.patch(url, json=self._empaquetar_firestore({"ubicacion": nueva_ubicacion}), timeout=10)
+        url = f"{self.base_url}/no_inventariables/{doc_id}?updateMask.fieldPaths=ubicacion&updateMask.fieldPaths=ultima_actualizacion"
+        requests.patch(url, json=self._empaquetar_firestore(cambios), timeout=10)
         return True, "Ubicación actualizada."
 
-    # ================= 2. INVENTARIABLES (CON MEMORIA DE FILAS EN ROJO) =================
-    def obtener_inventariables_empleado(self):
-        if not self.usuario_actual:
-            return []
-        num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
-        nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
-
-        lista = []
-        if self.db_firestore is not None:
-            for doc in self.db_firestore.collection("inventariables").stream():
-                item = doc.to_dict()
-                folio_str = str(item.get("folio", doc.id)).strip()
-                item["folio"] = folio_str
-                # Conserva el color rojo si estaba en revisión
-                item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
-                if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
-                    lista.append(item)
-            return lista
-
-        try:
-            resp = requests.get(f"{self.base_url}/inventariables", timeout=10)
-            if resp.status_code == 200:
-                for doc in resp.json().get("documents", []):
-                    item = self._desempaquetar_firestore(doc)
-                    folio_str = str(item.get("folio", item.get("doc_id", ""))).strip()
-                    item["folio"] = folio_str
-                    item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
-                    if num_emp.lower() == "admin" or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
-                        lista.append(item)
-        except Exception:
-            pass
-        return lista
-
-    def actualizar_ubicacion_inventariable(self, folio: str, nueva_ubicacion: str):
-        folio_clean = str(folio).strip()
-        doc_id = folio_clean.replace("/", "_")
-        self.folios_en_rojo.discard(folio_clean)
-
-        if self.db_firestore is not None:
-            self.db_firestore.collection("inventariables").document(doc_id).update({"ubicacion": nueva_ubicacion})
-            return True, "Ubicación actualizada."
-
-        url = f"{self.base_url}/inventariables/{doc_id}?updateMask.fieldPaths=ubicacion"
-        requests.patch(url, json=self._empaquetar_firestore({"ubicacion": nueva_ubicacion}), timeout=10)
-        return True, "Ubicación actualizada."
-    
     def enviar_reporte_no_inventariable(self, datos_item: dict, comentario: str):
         clave = str(datos_item.get("clave", "")).strip()
         doc_id = clave.replace("/", "_")
@@ -300,6 +245,7 @@ class FirebaseMobileClient:
         nuevo_reporte = {
             "id": str(int(datetime.now().timestamp()) % 10000),
             "clave": clave,
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
             "comentarios": comentario.strip(),
             "id_empleado": id_empleado,
             "nombre_encargado": nombre_encargado,
@@ -317,6 +263,53 @@ class FirebaseMobileClient:
         return True, "Reporte enviado exitosamente."
 
     # ================= 2. INVENTARIABLES =================
+    def obtener_inventariables_empleado(self):
+        if not self.usuario_actual:
+            return []
+        rol = str(self.usuario_actual.get("rol", "")).strip().lower()
+        num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
+        nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
+        es_admin = (rol == "admin" or num_emp.lower() == "admin")
+
+        lista = []
+        if self.db_firestore is not None:
+            for doc in self.db_firestore.collection("inventariables").stream():
+                item = doc.to_dict()
+                folio_str = str(item.get("folio", doc.id)).strip()
+                item["folio"] = folio_str
+                item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
+                if es_admin or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
+                    lista.append(item)
+            return lista
+
+        try:
+            resp = requests.get(f"{self.base_url}/inventariables?pageSize=300", timeout=10)
+            if resp.status_code == 200:
+                for doc in resp.json().get("documents", []):
+                    item = self._desempaquetar_firestore(doc)
+                    folio_str = str(item.get("folio", item.get("doc_id", ""))).strip()
+                    item["folio"] = folio_str
+                    item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
+                    if es_admin or str(item.get("id_empleado", "")) == num_emp or item.get("nombre_encargado", "").strip().lower() == nom_completo:
+                        lista.append(item)
+        except Exception:
+            pass
+        return lista
+
+    def actualizar_ubicacion_inventariable(self, folio: str, nueva_ubicacion: str):
+        folio_clean = str(folio).strip()
+        doc_id = folio_clean.replace("/", "_")
+        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
+        self.folios_en_rojo.discard(folio_clean)
+
+        cambios = {"ubicacion": nueva_ubicacion, "ultima_actualizacion": fecha_hoy}
+        if self.db_firestore is not None:
+            self.db_firestore.collection("inventariables").document(doc_id).update(cambios)
+            return True, "Ubicación actualizada."
+
+        url = f"{self.base_url}/inventariables/{doc_id}?updateMask.fieldPaths=ubicacion&updateMask.fieldPaths=ultima_actualizacion"
+        requests.patch(url, json=self._empaquetar_firestore(cambios), timeout=10)
+        return True, "Ubicación actualizada."
 
     def enviar_reporte_inventariable(self, datos_item: dict, comentario: str):
         folio = str(datos_item.get("folio", "")).strip()
@@ -327,6 +320,7 @@ class FirebaseMobileClient:
         nuevo_reporte = {
             "id": str(int(datetime.now().timestamp()) % 10000),
             "folio": folio,
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
             "comentarios": comentario.strip(),
             "id_empleado": id_empleado,
             "nombre_encargado": nombre_encargado,
@@ -355,7 +349,7 @@ class FirebaseMobileClient:
             return lista
 
         try:
-            resp = requests.get(f"{self.base_url}/consumibles", timeout=10)
+            resp = requests.get(f"{self.base_url}/consumibles?pageSize=300", timeout=10)
             if resp.status_code == 200:
                 for doc in resp.json().get("documents", []):
                     lista.append(self._desempaquetar_firestore(doc))
@@ -377,7 +371,7 @@ class FirebaseMobileClient:
         requests.patch(url, json=self._empaquetar_firestore({"cantidad": nueva_cantidad}), timeout=10)
         return True, nueva_cantidad
 
-    # ================= 4. ALUMNOS Y SERVICIO SOCIAL =================
+    # ================= 4. ALUMNOS, HORAS Y REPORTES ADMIN =================
     def obtener_alumnos_movil(self):
         lista = []
         if self.db_firestore is not None:
@@ -390,7 +384,7 @@ class FirebaseMobileClient:
             return lista
 
         try:
-            resp = requests.get(f"{self.base_url}/usuarios", timeout=10)
+            resp = requests.get(f"{self.base_url}/usuarios?pageSize=300", timeout=10)
             if resp.status_code == 200:
                 for doc in resp.json().get("documents", []):
                     item = self._desempaquetar_firestore(doc)
@@ -427,7 +421,14 @@ class FirebaseMobileClient:
             for doc in self.db_firestore.collection("usuarios").document(doc_id).collection("control_horas").stream():
                 d = doc.to_dict()
                 horas = d.get("horas_calculadas") or self._calcular_horas_dia(d.get("hora_entrada", ""), d.get("hora_salida", ""))
-                lista.append({"fecha": d.get("fecha", ""), "horas": horas, "validado": bool(d.get("validado", False))})
+                lista.append({
+                    "doc_id": doc.id,
+                    "fecha": d.get("fecha", ""),
+                    "hora_entrada": d.get("hora_entrada", ""),
+                    "hora_salida": d.get("hora_salida", ""),
+                    "horas": horas,
+                    "validado": bool(d.get("validado", False))
+                })
             return lista
 
         try:
@@ -437,15 +438,40 @@ class FirebaseMobileClient:
                 if "cantidad_horas" in d_al:
                     datos_alumno["cantidad_horas"] = d_al["cantidad_horas"]
 
-            resp = requests.get(f"{self.base_url}/usuarios/{doc_id}/control_horas", timeout=10)
+            resp = requests.get(f"{self.base_url}/usuarios/{doc_id}/control_horas?pageSize=300", timeout=10)
             if resp.status_code == 200:
                 for doc in resp.json().get("documents", []):
                     d = self._desempaquetar_firestore(doc)
                     horas = d.get("horas_calculadas") or self._calcular_horas_dia(d.get("hora_entrada", ""), d.get("hora_salida", ""))
-                    lista.append({"fecha": d.get("fecha", ""), "horas": horas, "validado": bool(d.get("validado", False))})
+                    lista.append({
+                        "doc_id": d.get("doc_id"),
+                        "fecha": d.get("fecha", ""),
+                        "hora_entrada": d.get("hora_entrada", ""),
+                        "hora_salida": d.get("hora_salida", ""),
+                        "horas": horas,
+                        "validado": bool(d.get("validado", False))
+                    })
         except Exception:
             pass
         return lista
+
+    def eliminar_hora_no_validada_estudiante(self, datos_alumno: dict, reg_hora: dict):
+        if bool(reg_hora.get("validado", False)):
+            return False, "No puedes eliminar un registro de horas que ya fue validado."
+
+        doc_id_alumno = str(datos_alumno.get("doc_id") or datos_alumno.get("id_usuario") or datos_alumno.get("usuario")).replace("/", "_")
+        doc_id_hora = reg_hora.get("doc_id")
+        if not doc_id_hora:
+            return False, "No se encontró el identificador de este registro."
+
+        try:
+            if self.db_firestore is not None:
+                self.db_firestore.collection("usuarios").document(doc_id_alumno).collection("control_horas").document(doc_id_hora).delete()
+            else:
+                requests.delete(f"{self.base_url}/usuarios/{doc_id_alumno}/control_horas/{doc_id_hora}", timeout=10)
+            return True, "Registro de horas eliminado correctamente."
+        except Exception as e:
+            return False, f"Error al eliminar registro: {e}"
 
     def enviar_justificacion_estudiante(self, datos_alumno: dict, fecha: str, justificacion: str):
         doc_id = str(datos_alumno.get("doc_id") or datos_alumno.get("id_usuario") or datos_alumno.get("usuario")).replace("/", "_")
@@ -487,3 +513,54 @@ class FirebaseMobileClient:
 
         requests.post(f"{self.base_url}/usuarios/{doc_id}/control_horas", json=self._empaquetar_firestore(nuevo_registro), timeout=10)
         return True, f"Horas registradas ({horas_calc} hrs)."
+
+    def obtener_lista_empleados_movil(self):
+        lista = []
+        if self.db_firestore is not None:
+            for doc in self.db_firestore.collection("usuarios").stream():
+                d = doc.to_dict()
+                if d.get("rol") in ["empleado", "admin"]:
+                    d["doc_id"] = doc.id
+                    d["nombre_completo"] = f"{d.get('nombres', '').strip()} {d.get('apellidos', '').strip()}".strip() or doc.id
+                    lista.append(d)
+            return lista
+
+        try:
+            resp = requests.get(f"{self.base_url}/usuarios?pageSize=300", timeout=10)
+            if resp.status_code == 200:
+                for doc in resp.json().get("documents", []):
+                    d = self._desempaquetar_firestore(doc)
+                    if d.get("rol") in ["empleado", "admin"]:
+                        d["nombre_completo"] = f"{d.get('nombres', '').strip()} {d.get('apellidos', '').strip()}".strip() or d.get("doc_id", "")
+                        lista.append(d)
+        except Exception:
+            pass
+        return lista
+
+    def obtener_inventario_por_empleado(self, tipo_inventario: str, nombre_empleado="Todos", id_empleado=""):
+        coleccion = "inventariables" if tipo_inventario.lower() == "inventariables" else "no_inventariables"
+        todos = []
+
+        if self.db_firestore is not None:
+            for doc in self.db_firestore.collection(coleccion).stream():
+                d = doc.to_dict()
+                d["doc_id"] = doc.id
+                todos.append(d)
+        else:
+            try:
+                resp = requests.get(f"{self.base_url}/{coleccion}?pageSize=300", timeout=10)
+                if resp.status_code == 200:
+                    for doc in resp.json().get("documents", []):
+                        todos.append(self._desempaquetar_firestore(doc))
+            except Exception:
+                pass
+
+        if nombre_empleado == "Todos":
+            return todos
+
+        nom_norm = nombre_empleado.strip().lower()
+        return [
+            it for it in todos
+            if (id_empleado and str(it.get("id_empleado", "")).strip() == str(id_empleado).strip())
+            or str(it.get("nombre_encargado", "")).strip().lower() == nom_norm
+        ]

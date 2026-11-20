@@ -15,7 +15,8 @@ class MenuEmpleadoView(ft.Container):
         ir_a_inventariables=None,
         ir_a_consumibles=None,
         ir_a_alumnos=None,
-        ir_a_editar_datos=None
+        ir_a_editar_datos=None,
+        ir_a_reportes_admin=None
     ):
         super().__init__()
         self.page = page
@@ -231,6 +232,20 @@ class MenuEmpleadoView(ft.Container):
                     texto_color=COLOR_MORADO_FONDO,
                     tamano_fuente=23,
                     comando=self.ir_a_alumnos
+                )
+            )
+
+        if es_admin:
+            ico_rep_admin = self._obtener_icono("pdf.png", ft.icons.PICTURE_AS_PDF, COLOR_MORADO_FONDO)
+            botones_visibles.append(
+                self._crear_boton_menu(
+                    texto="Reportes PDF",
+                    widget_icono=ico_rep_admin,
+                    bg_color=COLOR_AMARILLO_TARJETA,
+                    borde_color=COLOR_MORADO_FONDO,
+                    texto_color=COLOR_MORADO_FONDO,
+                    tamano_fuente=20,
+                    comando=self.ir_a_reportes_admin
                 )
             )
 

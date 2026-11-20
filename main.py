@@ -28,6 +28,7 @@ from views.estudiante.consulta_horas_estudiante_view import ConsultaHorasEstudia
 from views.estudiante.justificacion_estudiante_view import JustificacionEstudianteView
 from views.estudiante.agregar_horas_estudiante_view import AgregarHorasEstudianteView
 from views.editar_datos_mobile_view import EditarDatosMobileView
+from views.empleado.reportes_admin_mobile_view import ReportesAdminMobileView
 
 
 class AppSICADMovil:
@@ -115,7 +116,8 @@ class AppSICADMovil:
                     ir_a_inventariables=self.ir_a_lista_inventariables,
                     ir_a_consumibles=self.ir_a_lista_consumibles,
                     ir_a_alumnos=self.ir_a_lista_alumnos,
-                    ir_a_editar_datos=self.ir_a_editar_datos_movil
+                    ir_a_editar_datos=self.ir_a_editar_datos_movil,
+                    ir_a_reportes_admin=self.ir_a_reportes_admin
                 ),
                 accion_boton_atras=self.mostrar_login
             )
@@ -221,6 +223,15 @@ class AppSICADMovil:
                 al_regresar=self.ir_a_lista_alumnos
             ),
             accion_boton_atras=self.ir_a_lista_alumnos
+        )
+
+    def ir_a_reportes_admin(self):
+        self.cambiar_pantalla(
+            ReportesAdminMobileView(
+                page=self.page,
+                al_regresar=self.ir_a_menu_principal
+            ),
+            accion_boton_atras=self.ir_a_menu_principal
         )
 
     # ================= NAVEGACIÓN DE ESTUDIANTE =================

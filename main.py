@@ -4,7 +4,9 @@ from config.settings import (
 )
 from database.firebase_mobile_client import FirebaseMobileClient
 from views.login_mobile_view import LoginMobileView
+from views.editar_datos_mobile_view import EditarDatosMobileView
 from views.empleado.menu_empleado_view import MenuEmpleadoView
+from views.empleado.reportes_admin_mobile_view import ReportesAdminMobileView
 from views.empleado.no_inventariables_mobile_view import (
     ListaNoInventariablesMobileView,
     DetalleNoInventariableMobileView,
@@ -27,8 +29,6 @@ from views.estudiante.menu_estudiante_view import MenuEstudianteView
 from views.estudiante.consulta_horas_estudiante_view import ConsultaHorasEstudianteView
 from views.estudiante.justificacion_estudiante_view import JustificacionEstudianteView
 from views.estudiante.agregar_horas_estudiante_view import AgregarHorasEstudianteView
-from views.editar_datos_mobile_view import EditarDatosMobileView
-from views.empleado.reportes_admin_mobile_view import ReportesAdminMobileView
 
 
 class AppSICADMovil:
@@ -41,7 +41,7 @@ class AppSICADMovil:
         self.mostrar_login()
 
     def _configurar_pagina(self):
-        self.page.title = "SICCAD Móvil"
+        self.page.title = "SICCAD MOVIL"
         self.page.bgcolor = COLOR_MORADO_FONDO
         self.page.padding = 0
         self.page.theme_mode = ft.ThemeMode.LIGHT
@@ -57,23 +57,16 @@ class AppSICADMovil:
         self.page.window.height = ALTO_MOVIL
         self.page.window.resizable = False
 
-        # Interceptar el botón físico / gesto "Atrás" de Android
         self.page.on_view_pop = self._al_presionar_atras_telefono
 
     def _al_presionar_atras_telefono(self, e):
-        """ Se ejecuta automáticamente cuando el usuario presiona 'Atrás' en su celular Android """
         if self.funcion_atras_actual is not None:
             self.funcion_atras_actual()
 
     def cambiar_pantalla(self, widget_vista, accion_boton_atras=None):
-        """
-        Cambia la pantalla actual y configura a dónde debe regresar el botón 'Atrás' del celular.
-        """
         self.funcion_atras_actual = accion_boton_atras
         self.page.views.clear()
 
-        # En Android, si hay una pantalla anterior disponible, ponemos una vista base detrás
-        # para que el sistema operativo Android active el gesto de retroceso sin cerrar la app
         if accion_boton_atras is not None:
             self.page.views.append(
                 ft.View(route="/base", bgcolor=COLOR_MORADO_FONDO, padding=0, controls=[])
@@ -97,14 +90,14 @@ class AppSICADMovil:
                 page=self.page,
                 al_iniciar_sesion_exitoso=self.ir_a_menu_principal
             ),
-            accion_boton_atras=None  # En Login ya estamos al inicio
+            accion_boton_atras=None
         )
 
     def ir_a_menu_principal(self, datos_usuario=None):
         if datos_usuario is None:
             datos_usuario = self.firebase.usuario_actual or {}
 
-        if datos_usuario.get("rol") == "estudiante":
+        if str(datos_usuario.get("rol", "")).strip().lower() == "estudiante":
             self.ir_a_menu_estudiante(datos_usuario)
         else:
             self.cambiar_pantalla(
@@ -121,6 +114,25 @@ class AppSICADMovil:
                 ),
                 accion_boton_atras=self.mostrar_login
             )
+
+    def ir_a_editar_datos_movil(self):
+        self.cambiar_pantalla(
+            EditarDatosMobileView(
+                page=self.page,
+                datos_usuario=self.firebase.usuario_actual,
+                al_regresar=self.ir_a_menu_principal
+            ),
+            accion_boton_atras=self.ir_a_menu_principal
+        )
+
+    def ir_a_reportes_admin(self):
+        self.cambiar_pantalla(
+            ReportesAdminMobileView(
+                page=self.page,
+                al_regresar=self.ir_a_menu_principal
+            ),
+            accion_boton_atras=self.ir_a_menu_principal
+        )
 
     # ================= NAVEGACIÓN DE EMPLEADO =================
     def ir_a_lista_no_inventariables(self):
@@ -225,15 +237,6 @@ class AppSICADMovil:
             accion_boton_atras=self.ir_a_lista_alumnos
         )
 
-    def ir_a_reportes_admin(self):
-        self.cambiar_pantalla(
-            ReportesAdminMobileView(
-                page=self.page,
-                al_regresar=self.ir_a_menu_principal
-            ),
-            accion_boton_atras=self.ir_a_menu_principal
-        )
-
     # ================= NAVEGACIÓN DE ESTUDIANTE =================
     def ir_a_menu_estudiante(self, datos_estudiante=None):
         if datos_estudiante is None:
@@ -248,16 +251,6 @@ class AppSICADMovil:
                 ir_a_editar_datos=self.ir_a_editar_datos_movil
             ),
             accion_boton_atras=self.mostrar_login
-        )
-
-    def ir_a_editar_datos_movil(self):
-        self.cambiar_pantalla(
-            EditarDatosMobileView(
-                page=self.page,
-                datos_usuario=self.firebase.usuario_actual,
-                al_regresar=self.ir_a_menu_principal
-            ),
-            accion_boton_atras=self.ir_a_menu_principal
         )
 
     def ir_a_consulta_horas_estudiante(self):

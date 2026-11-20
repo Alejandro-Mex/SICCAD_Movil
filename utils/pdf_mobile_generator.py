@@ -24,60 +24,47 @@ def obtener_ruta_descargas(nombre_archivo: str) -> str:
 
 def generar_pdf_inventario_movil(tipo_inventario: str, items: list, nombre_empleado_filtro="Todos") -> tuple:
     """
-    Genera PDF en orientación HORIZONTAL (Landscape) de Bienes Inventariables o No Inventariables
-    usando FPDF (100% puro Python, 100% compatible con APK Android) y SIN logo.
+    Genera los reportes PDF agrupados por Resguardante con el estilo exacto de las 2 capturas:
+    - No Inventariables: Banner morado ('Última actualización' y 'Total de registros') + Clave | Descripción | Ubicación | Resguardante.
+    - Inventariables: Horizontal SIN banner morado, texto superior derecho 'Última actualización: DD/MM/YYYY' + 9 columnas ('Número de serie' y 'Resguardante').
     """
     try:
-        fecha_emision = datetime.now().strftime("%d/%m/%Y")
+        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
         fecha_file = datetime.now().strftime("%d_%m_%Y_%H%M")
         emp_limpio = nombre_empleado_filtro.replace(" ", "_")
         es_inv = (tipo_inventario.lower() == "inventariables")
 
+        # Agrupar / Ordenar alfabéticamente por Resguardante
+        items_ordenados = sorted(
+            items,
+            key=lambda x: str(x.get("nombre_encargado", "")).strip().lower()
+        )
+
         nombre_pdf = f"Reporte_{'Inventariables' if es_inv else 'No_Inventariables'}_{emp_limpio}_{fecha_file}.pdf"
         ruta_final = obtener_ruta_descargas(nombre_pdf)
 
-        # Hoja Carta en Horizontal ('L' = Landscape, mm, 'Letter' -> 279.4 x 215.9 mm)
         pdf = FPDF(orientation="L", unit="mm", format="Letter")
         pdf.set_auto_page_break(auto=True, margin=12)
         pdf.add_page()
 
-        # 1. BANNER SUPERIOR MORADO (#553a8f -> RGB 85, 58, 143) SIN LOGO
-        pdf.set_fill_color(85, 58, 143)
-        pdf.rect(10, 10, 259, 22, style="F")
-
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Helvetica", "B", 15)
-        pdf.set_xy(15, 13)
-        pdf.cell(160, 7, _limpiar_latin1("Centro de Alfabetización Digital"), ln=0)
-
-        pdf.set_font("Helvetica", "B", 9.5)
-        pdf.set_xy(190, 13)
-        pdf.cell(74, 6, _limpiar_latin1(f"Fecha de emisión: {fecha_emision}"), align="R")
-
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_xy(15, 21)
-        sub = f"Ayuntamiento de Mérida - Padrón de Bienes {'Inventariables' if es_inv else 'No Inventariables'} ({nombre_empleado_filtro})"
-        pdf.cell(175, 6, _limpiar_latin1(sub), ln=0)
-
-        pdf.set_font("Helvetica", "B", 9.5)
-        pdf.set_xy(190, 20)
-        pdf.cell(74, 6, _limpiar_latin1(f"Total de registros: {len(items)}"), align="R")
-
-        pdf.set_xy(10, 38)
-        pdf.set_text_color(0, 0, 0)
-
-        # 2. TÍTULO DE LA TABLA (Gris claro #F2F4F8)
-        pdf.set_fill_color(242, 244, 248)
-        pdf.set_font("Helvetica", "B", 10.5)
-        tit_tabla = f"Reporte General de Bienes {'Inventariables' if es_inv else 'No Inventariables'} - {nombre_empleado_filtro}"
-        pdf.cell(259, 8, _limpiar_latin1(tit_tabla), border=1, ln=1, align="C", fill=True)
-
-        # 3. ENCABEZADOS AMARILLOS (#FCCb2d -> RGB 252, 203, 45)
-        pdf.set_fill_color(252, 203, 45)
         if es_inv:
+            # --- ESTILO SEGUNDA IMAGEN (INVENTARIABLES): Sin banner morado, solo 'Última actualización' arriba a la derecha ---
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_xy(10, 10)
+            pdf.cell(259, 6, _limpiar_latin1(f"Última actualización: {fecha_hoy}"), ln=1, align="R")
+            pdf.ln(2)
+
+            # Título de tabla gris claro
+            pdf.set_fill_color(242, 244, 248)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(259, 8, _limpiar_latin1("Reporte General de Bienes Inventariables"), border=1, ln=1, align="C", fill=True)
+
+            # Encabezados amarillos (#FCCb2d) con 'Número de serie' y 'Resguardante'
+            pdf.set_fill_color(252, 203, 45)
             cols = [
-                ("Folio", 22), ("Marca", 24), ("Modelo", 28), ("Descripción", 44),
-                ("N° Serie", 25), ("Estado", 20), ("Ubicación", 26), ("Unidad Admin.", 30), ("Encargado", 40)
+                ("Folio", 22), ("Marca", 24), ("Modelo", 28), ("Descripción", 42),
+                ("Número de serie", 27), ("Estado", 20), ("Ubicación", 26), ("Unidad Admin.", 30), ("Resguardante", 40)
             ]
             pdf.set_font("Helvetica", "B", 8.5)
             for titulo, ancho in cols:
@@ -85,10 +72,10 @@ def generar_pdf_inventario_movil(tipo_inventario: str, items: list, nombre_emple
             pdf.ln()
 
             pdf.set_font("Helvetica", "", 8)
-            for it in items:
+            for it in items_ordenados:
                 vals = [
                     str(it.get("folio", "")), str(it.get("marca", "")), str(it.get("modelo", "")),
-                    str(it.get("descripcion", ""))[:32], str(it.get("numero_serie", "")),
+                    str(it.get("descripcion", ""))[:30], str(it.get("numero_serie", "")),
                     str(it.get("estado", "")), str(it.get("ubicacion", "")),
                     str(it.get("unidad_admin", ""))[:18], str(it.get("nombre_encargado", ""))[:26]
                 ]
@@ -97,14 +84,43 @@ def generar_pdf_inventario_movil(tipo_inventario: str, items: list, nombre_emple
                     pdf.cell(cols[idx][1], 8, _limpiar_latin1(val), border=1, align=alinear)
                 pdf.ln()
         else:
-            cols = [("Clave", 55), ("Descripción", 84), ("Ubicación", 55), ("Encargado", 65)]
+            # --- ESTILO PRIMERA IMAGEN (NO INVENTARIABLES): Banner morado con 'Última actualización' + Resguardante ---
+            pdf.set_fill_color(85, 58, 143)
+            pdf.rect(10, 10, 259, 22, style="F")
+
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Helvetica", "B", 15)
+            pdf.set_xy(15, 13)
+            pdf.cell(160, 7, _limpiar_latin1("Centro de Alfabetización Digital"), ln=0)
+
+            pdf.set_font("Helvetica", "B", 9.5)
+            pdf.set_xy(190, 13)
+            pdf.cell(74, 6, _limpiar_latin1(f"Última actualización: {fecha_hoy}"), align="R")
+
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_xy(15, 21)
+            pdf.cell(175, 6, _limpiar_latin1("Ayuntamiento de Mérida - Padrón de Bienes No Inventariables"), ln=0)
+
+            pdf.set_font("Helvetica", "B", 9.5)
+            pdf.set_xy(190, 20)
+            pdf.cell(74, 6, _limpiar_latin1(f"Total de registros: {len(items_ordenados)}"), align="R")
+
+            pdf.set_xy(10, 38)
+            pdf.set_text_color(0, 0, 0)
+
+            pdf.set_fill_color(242, 244, 248)
+            pdf.set_font("Helvetica", "B", 10.5)
+            pdf.cell(259, 8, _limpiar_latin1("Reporte General de Bienes No Inventariables"), border=1, ln=1, align="C", fill=True)
+
+            pdf.set_fill_color(252, 203, 45)
+            cols = [("Clave", 55), ("Descripción", 84), ("Ubicación", 55), ("Resguardante", 65)]
             pdf.set_font("Helvetica", "B", 9.5)
             for titulo, ancho in cols:
                 pdf.cell(ancho, 8, _limpiar_latin1(titulo), border=1, align="C", fill=True)
             pdf.ln()
 
             pdf.set_font("Helvetica", "", 9)
-            for it in items:
+            for it in items_ordenados:
                 vals = [
                     str(it.get("clave", "")), str(it.get("descripcion", ""))[:45],
                     str(it.get("ubicacion", "")), str(it.get("nombre_encargado", ""))[:35]

@@ -15,4 +15,5 @@ ALTO_MOVIL = 820
 
 # CONFIGURACIÓN DE TU PROYECTO FIREBASE (Misma BD que la versión de escritorio)
 # Cuando conectes a producción, aquí solo pones el project_id que viene en tu serviceAccountKey.json
-FIREBASE_PROJECT_ID = "siccad-merida-cad-6689c"
+# URL DE TU GOOGLE APPS SCRIPT (BASE DE DATOS EN GOOGLE SHEETS)
+GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/PEGA_AQUI_TU_URL_REAL/exec"

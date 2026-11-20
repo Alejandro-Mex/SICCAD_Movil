@@ -6,8 +6,10 @@ from config.settings import GOOGLE_SHEETS_API_URL
 
 class FirebaseMobileClient:
     """
-    Motor de Base de Datos de SICCAD Móvil conectado a Google Sheets (vía Apps Script Web App).
-    Mantiene exactamente la misma interfaz de métodos para todas las vistas móviles.
+    Cliente de Base de Datos de SICCAD Móvil conectado exactamente a las 10 pestañas
+    de BD_SICCAD_PRODUCCION en Google Sheets:
+    Usuario | Empleado | Estudiante | ControlHoras | ControlJustificaciones |
+    NoInventariable | ReporteNoInventariable | Consumible | Inventariable | ReporteInventariable
     """
     _instancia = None
 
@@ -22,7 +24,6 @@ class FirebaseMobileClient:
         self.usuario_actual = None
         self.claves_en_rojo = set()
         self.folios_en_rojo = set()
-        self._asegurar_admin_inicial()
 
     @staticmethod
     def encriptar_password(password: str) -> str:
@@ -55,101 +56,105 @@ class FirebaseMobileClient:
                 if js.get("ok"):
                     return js.get("data", [])
         except Exception as e:
-            print(f"Error leyendo hoja '{nombre_hoja}' en Google Sheets: {e}")
+            print(f"Error leyendo pestaña '{nombre_hoja}': {e}")
         return []
 
-    def _sheet_guardar(self, nombre_hoja: str, doc_id: str, datos: dict) -> bool:
+    def _sheet_upsert(self, nombre_hoja: str, key_col: str, key_val: str, datos: dict) -> bool:
         try:
             payload = {
                 "action": "upsert",
                 "sheet": nombre_hoja,
-                "doc_id": str(doc_id),
+                "key_col": key_col,
+                "key_val": str(key_val),
                 "data": datos
             }
-            resp = requests.post(
-                self.api_url,
-                json=payload,
-                timeout=15,
-                allow_redirects=True
-            )
+            resp = requests.post(self.api_url, json=payload, timeout=15, allow_redirects=True)
             return resp.status_code in [200, 201, 302]
         except Exception as e:
-            print(f"Error guardando en hoja '{nombre_hoja}': {e}")
+            print(f"Error actualizando pestaña '{nombre_hoja}': {e}")
             return False
 
-    def _sheet_eliminar(self, nombre_hoja: str, doc_id: str) -> bool:
+    def _sheet_insert_auto_id(self, nombre_hoja: str, datos: dict) -> bool:
+        try:
+            payload = {
+                "action": "insert_auto_id",
+                "sheet": nombre_hoja,
+                "data": datos
+            }
+            resp = requests.post(self.api_url, json=payload, timeout=15, allow_redirects=True)
+            return resp.status_code in [200, 201, 302]
+        except Exception as e:
+            print(f"Error insertando en pestaña '{nombre_hoja}': {e}")
+            return False
+
+    def _sheet_eliminar(self, nombre_hoja: str, key_col: str, key_val: str) -> bool:
         try:
             payload = {
                 "action": "delete",
                 "sheet": nombre_hoja,
-                "doc_id": str(doc_id)
+                "key_col": key_col,
+                "key_val": str(key_val)
             }
-            resp = requests.post(
-                self.api_url,
-                json=payload,
-                timeout=15,
-                allow_redirects=True
-            )
+            resp = requests.post(self.api_url, json=payload, timeout=15, allow_redirects=True)
             return resp.status_code in [200, 201, 302]
         except Exception as e:
-            print(f"Error eliminando en hoja '{nombre_hoja}': {e}")
+            print(f"Error eliminando en pestaña '{nombre_hoja}': {e}")
             return False
 
-    def _asegurar_admin_inicial(self):
-        """ Si la hoja 'usuarios' está nueva y vacía, crea automáticamente admin / 12345 """
-        try:
-            usuarios = self._sheet_leer("usuarios")
-            if not usuarios:
-                self._sheet_guardar("usuarios", "admin", {
-                    "doc_id": "admin",
-                    "id_usuario": "admin",
-                    "usuario": "admin",
-                    "numero_empleado": "admin",
-                    "contrasena": self.encriptar_password("12345"),
-                    "password_visible": "12345",
-                    "rol": "admin",
-                    "es_admin": True,
-                    "nombres": "Administrador",
-                    "apellidos": "CAD Mérida",
-                    "correo": "admin@merida.gob.mx",
-                    "per_inventariables": True,
-                    "per_no_inventariables": True,
-                    "per_servicio_social": True,
-                    "per_bienes_consumo": True
-                })
-        except Exception:
-            pass
-
-    # ================= LOGIN DUAL (EMPLEADO, ADMIN Y ESTUDIANTE) =================
+    # ================= LOGIN DUAL (UNIENDO Usuario + Empleado / Estudiante) =================
     def validar_login_movil_empleado(self, usuario: str, password: str):
         usuario = str(usuario).strip()
         password = str(password).strip()
         pass_hash = self.encriptar_password(password)
 
         try:
-            usuarios = self._sheet_leer("usuarios")
+            usuarios = self._sheet_leer("Usuario")
             for u in usuarios:
                 ids_posibles = [
-                    str(u.get("doc_id", "")).strip(),
-                    str(u.get("numero_empleado", "")).strip(),
-                    str(u.get("usuario", "")).strip(),
-                    str(u.get("id_usuario", "")).strip()
+                    str(u.get("id_usuario", "")).strip(),
+                    str(u.get("usuario", "")).strip()
                 ]
                 if usuario in ids_posibles:
                     pass_guardada = str(u.get("contrasena", "")).strip()
                     pass_vis = str(u.get("password_visible", "")).strip()
                     if pass_guardada in [pass_hash, password] or (pass_vis and pass_vis == password):
-                        # Normalizar permisos booleanos
-                        u["es_admin"] = self._a_bool(u.get("es_admin", False))
-                        u["per_inventariables"] = self._a_bool(u.get("per_inventariables", False))
-                        u["per_no_inventariables"] = self._a_bool(u.get("per_no_inventariables", False))
-                        u["per_servicio_social"] = self._a_bool(u.get("per_servicio_social", False))
-                        u["per_bienes_consumo"] = self._a_bool(u.get("per_bienes_consumo", False))
-                        u["password_visible"] = password
-                        if u.get("cantidad_horas") != "":
-                            u["cantidad_horas"] = self._a_int(u.get("cantidad_horas", 480), 480)
-                        self.usuario_actual = u
-                        return True, u
+                        id_u = str(u.get("id_usuario", "")).strip()
+                        rol = str(u.get("rol", "")).strip().lower()
+
+                        perfil = dict(u)
+                        perfil["doc_id"] = id_u
+                        perfil["numero_empleado"] = id_u
+                        perfil["password_visible"] = password
+
+                        if rol in ["admin", "empleado"]:
+                            # Unir con la pestaña 'Empleado' para leer sus permisos exactos
+                            empleados = self._sheet_leer("Empleado")
+                            emp_row = next(
+                                (e for e in empleados if str(e.get("numero_empleado", "")).strip() == id_u),
+                                {}
+                            )
+                            perfil["es_admin"] = (rol == "admin")
+                            perfil["per_inventariables"] = True if rol == "admin" else self._a_bool(emp_row.get("per_inventariables", False))
+                            perfil["per_no_inventariables"] = True if rol == "admin" else self._a_bool(emp_row.get("per_no_inventariables", False))
+                            perfil["per_servicio_social"] = True if rol == "admin" else self._a_bool(emp_row.get("per_servicio_social", False))
+                            perfil["per_bienes_consumo"] = True if rol == "admin" else self._a_bool(emp_row.get("per_bienes_consumo", False))
+
+                        elif rol == "estudiante":
+                            # Unir con la pestaña 'Estudiante' para leer sus horas, escuela y fechas
+                            estudiantes = self._sheet_leer("Estudiante")
+                            est_row = next(
+                                (es for es in estudiantes if str(es.get("id_usuario", "")).strip() == id_u),
+                                {}
+                            )
+                            perfil["edad"] = self._a_int(est_row.get("edad", 0), 0)
+                            perfil["direccion"] = str(est_row.get("direccion", ""))
+                            perfil["fecha_inicio"] = str(est_row.get("fecha_inicio", ""))
+                            perfil["fecha_fin"] = str(est_row.get("fecha_fin", ""))
+                            perfil["cantidad_horas"] = self._a_int(est_row.get("cantidad_horas", 500), 500)
+                            perfil["nombre_escuela"] = str(est_row.get("nombre_escuela", ""))
+
+                        self.usuario_actual = perfil
+                        return True, perfil
 
             return False, "Usuario o contraseña incorrectos."
         except Exception as e:
@@ -168,43 +173,36 @@ class FirebaseMobileClient:
         if not nombres or not apellidos or not nuevo_usuario:
             return False, "Por favor completa Nombres, Apellidos y Usuario."
 
-        doc_id_actual = str(
-            self.usuario_actual.get("doc_id")
-            or self.usuario_actual.get("numero_empleado")
-            or self.usuario_actual.get("id_usuario")
-            or self.usuario_actual.get("usuario")
-        ).strip()
-
-        doc_actualizado = dict(self.usuario_actual)
-        doc_actualizado["nombres"] = nombres
-        doc_actualizado["apellidos"] = apellidos
-        doc_actualizado["correo"] = correo
-        doc_actualizado["usuario"] = nuevo_usuario
-        doc_actualizado["numero_empleado"] = nuevo_usuario
-
+        id_u = str(self.usuario_actual.get("id_usuario", "")).strip()
+        cambios = {
+            "usuario": nuevo_usuario,
+            "nombres": nombres,
+            "apellidos": apellidos,
+            "correo": correo
+        }
         if nueva_pass:
-            doc_actualizado["contrasena"] = self.encriptar_password(nueva_pass)
-            doc_actualizado["password_visible"] = nueva_pass
+            cambios["contrasena"] = nueva_pass
+            cambios["password_visible"] = nueva_pass
 
-        ok = self._sheet_guardar("usuarios", doc_id_actual, doc_actualizado)
+        ok = self._sheet_upsert("Usuario", "id_usuario", id_u, cambios)
         if ok:
-            self.usuario_actual = doc_actualizado
+            self.usuario_actual.update(cambios)
             return True, "Datos actualizados correctamente en Google Sheets."
         return False, "No se pudo actualizar en Google Sheets."
 
-    # ================= 1. NO INVENTARIABLES =================
+    # ================= 1. NO INVENTARIABLES (Pestañas: NoInventariable y ReporteNoInventariable) =================
     def obtener_no_inventariables_empleado(self):
         if not self.usuario_actual:
             return []
         rol = str(self.usuario_actual.get("rol", "")).strip().lower()
-        num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
+        num_emp = str(self.usuario_actual.get("id_usuario", "")).strip()
         nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
-        es_admin = (rol == "admin" or num_emp.lower() == "admin" or self._a_bool(self.usuario_actual.get("es_admin", False)))
+        es_admin = (rol == "admin" or num_emp.lower() == "admin")
 
-        todos = self._sheet_leer("no_inventariables")
+        todos = self._sheet_leer("NoInventariable")
         lista = []
         for item in todos:
-            clave_str = str(item.get("clave", item.get("doc_id", ""))).strip()
+            clave_str = str(item.get("clave", "")).strip()
             item["clave"] = clave_str
             item["en_revision_rojo"] = (clave_str in self.claves_en_rojo)
             if es_admin or str(item.get("id_empleado", "")).strip() == num_emp or str(item.get("nombre_encargado", "")).strip().lower() == nom_completo:
@@ -213,18 +211,10 @@ class FirebaseMobileClient:
 
     def actualizar_ubicacion_no_inventariable(self, clave: str, nueva_ubicacion: str):
         clave_clean = str(clave).strip()
-        doc_id = clave_clean.replace("/", "_")
         fecha_hoy = datetime.now().strftime("%d/%m/%Y")
         self.claves_en_rojo.discard(clave_clean)
 
-        # Buscar doc_id exacto en la hoja
-        todos = self._sheet_leer("no_inventariables")
-        for it in todos:
-            if str(it.get("clave", "")).strip() == clave_clean:
-                doc_id = str(it.get("doc_id") or doc_id)
-                break
-
-        ok = self._sheet_guardar("no_inventariables", doc_id, {
+        ok = self._sheet_upsert("NoInventariable", "clave", clave_clean, {
             "ubicacion": nueva_ubicacion,
             "ultima_actualizacion": fecha_hoy
         })
@@ -232,39 +222,33 @@ class FirebaseMobileClient:
 
     def enviar_reporte_no_inventariable(self, datos_item: dict, comentario: str):
         clave = str(datos_item.get("clave", "")).strip()
-        doc_bien_id = str(datos_item.get("doc_id") or clave.replace("/", "_"))
         nombre_encargado = datos_item.get("nombre_encargado", "") or f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip()
-        id_empleado = str(datos_item.get("id_empleado", "") or self.usuario_actual.get("numero_empleado", ""))
+        id_empleado = str(datos_item.get("id_empleado", "") or self.usuario_actual.get("id_usuario", ""))
 
-        rep_id = f"RNI-{int(datetime.now().timestamp()) % 100000}"
         nuevo_reporte = {
-            "doc_id": rep_id,
-            "id": rep_id,
-            "bien_doc_id": doc_bien_id,
             "clave": clave,
-            "fecha": datetime.now().strftime("%d/%m/%Y"),
-            "comentarios": comentario.strip(),
             "id_empleado": id_empleado,
             "nombre_encargado": nombre_encargado,
-            "tipo_bien": "no_inventariable",
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "comentarios": comentario.strip(),
             "validado": False
         }
-        ok = self._sheet_guardar("reportes_no_inventariables", rep_id, nuevo_reporte)
+        ok = self._sheet_insert_auto_id("ReporteNoInventariable", nuevo_reporte)
         return ok, "Reporte enviado exitosamente." if ok else "Error al enviar reporte."
 
-    # ================= 2. INVENTARIABLES =================
+    # ================= 2. INVENTARIABLES (Pestañas: Inventariable y ReporteInventariable) =================
     def obtener_inventariables_empleado(self):
         if not self.usuario_actual:
             return []
         rol = str(self.usuario_actual.get("rol", "")).strip().lower()
-        num_emp = str(self.usuario_actual.get("numero_empleado", "")).strip()
+        num_emp = str(self.usuario_actual.get("id_usuario", "")).strip()
         nom_completo = f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip().lower()
-        es_admin = (rol == "admin" or num_emp.lower() == "admin" or self._a_bool(self.usuario_actual.get("es_admin", False)))
+        es_admin = (rol == "admin" or num_emp.lower() == "admin")
 
-        todos = self._sheet_leer("inventariables")
+        todos = self._sheet_leer("Inventariable")
         lista = []
         for item in todos:
-            folio_str = str(item.get("folio", item.get("doc_id", ""))).strip()
+            folio_str = str(item.get("folio", "")).strip()
             item["folio"] = folio_str
             item["en_revision_rojo"] = (folio_str in self.folios_en_rojo)
             if es_admin or str(item.get("id_empleado", "")).strip() == num_emp or str(item.get("nombre_encargado", "")).strip().lower() == nom_completo:
@@ -273,17 +257,10 @@ class FirebaseMobileClient:
 
     def actualizar_ubicacion_inventariable(self, folio: str, nueva_ubicacion: str):
         folio_clean = str(folio).strip()
-        doc_id = folio_clean.replace("/", "_")
         fecha_hoy = datetime.now().strftime("%d/%m/%Y")
         self.folios_en_rojo.discard(folio_clean)
 
-        todos = self._sheet_leer("inventariables")
-        for it in todos:
-            if str(it.get("folio", "")).strip() == folio_clean:
-                doc_id = str(it.get("doc_id") or doc_id)
-                break
-
-        ok = self._sheet_guardar("inventariables", doc_id, {
+        ok = self._sheet_upsert("Inventariable", "folio", folio_clean, {
             "ubicacion": nueva_ubicacion,
             "ultima_actualizacion": fecha_hoy
         })
@@ -291,31 +268,26 @@ class FirebaseMobileClient:
 
     def enviar_reporte_inventariable(self, datos_item: dict, comentario: str):
         folio = str(datos_item.get("folio", "")).strip()
-        doc_bien_id = str(datos_item.get("doc_id") or folio.replace("/", "_"))
         nombre_encargado = datos_item.get("nombre_encargado", "") or f"{self.usuario_actual.get('nombres', '')} {self.usuario_actual.get('apellidos', '')}".strip()
-        id_empleado = str(datos_item.get("id_empleado", "") or self.usuario_actual.get("numero_empleado", ""))
+        id_empleado = str(datos_item.get("id_empleado", "") or self.usuario_actual.get("id_usuario", ""))
 
-        rep_id = f"RI-{int(datetime.now().timestamp()) % 100000}"
         nuevo_reporte = {
-            "doc_id": rep_id,
-            "id": rep_id,
-            "bien_doc_id": doc_bien_id,
             "folio": folio,
-            "fecha": datetime.now().strftime("%d/%m/%Y"),
-            "comentarios": comentario.strip(),
             "id_empleado": id_empleado,
             "nombre_encargado": nombre_encargado,
-            "tipo_bien": "inventariable",
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "comentarios": comentario.strip(),
             "validado": False
         }
-        ok = self._sheet_guardar("reportes_inventariables", rep_id, nuevo_reporte)
+        ok = self._sheet_insert_auto_id("ReporteInventariable", nuevo_reporte)
         return ok, "Reporte enviado exitosamente." if ok else "Error al enviar reporte."
 
-    # ================= 3. CONSUMIBLES =================
+    # ================= 3. CONSUMIBLES (Pestaña: Consumible) =================
     def obtener_consumibles_movil(self):
-        todos = self._sheet_leer("consumibles")
+        todos = self._sheet_leer("Consumible")
         for it in todos:
-            it["id"] = str(it.get("id") or it.get("doc_id", ""))
+            it["id"] = str(it.get("id", ""))
+            it["doc_id"] = it["id"]
             it["cantidad"] = self._a_int(it.get("cantidad", 0), 0)
         return todos
 
@@ -323,21 +295,32 @@ class FirebaseMobileClient:
         cantidad_actual = self._a_int(datos_item.get("cantidad", 0), 0)
         nueva_cantidad = max(0, cantidad_actual + delta)
         datos_item["cantidad"] = nueva_cantidad
-        doc_id = str(datos_item.get("doc_id") or datos_item.get("id"))
+        id_con = str(datos_item.get("id", "")).strip()
 
-        ok = self._sheet_guardar("consumibles", doc_id, {"cantidad": nueva_cantidad})
+        ok = self._sheet_upsert("Consumible", "id", id_con, {"cantidad": nueva_cantidad})
         return ok, nueva_cantidad
 
     # ================= 4. ALUMNOS, HORAS, JUSTIFICACIONES Y REPORTES ADMIN =================
     def obtener_alumnos_movil(self):
-        todos = self._sheet_leer("usuarios")
+        usuarios = self._sheet_leer("Usuario")
+        estudiantes = self._sheet_leer("Estudiante")
+        mapa_est = {str(e.get("id_usuario", "")).strip(): e for e in estudiantes}
+
         lista = []
-        for item in todos:
-            if str(item.get("rol", "")).strip().lower() == "estudiante":
-                item["id_usuario"] = str(item.get("id_usuario") or item.get("doc_id", ""))
-                item["nombre_mostrar"] = f"{str(item.get('nombres', '')).strip()} {str(item.get('apellidos', '')).strip()}".strip() or item["id_usuario"]
-                item["cantidad_horas"] = self._a_int(item.get("cantidad_horas", 480), 480)
-                lista.append(item)
+        for u in usuarios:
+            if str(u.get("rol", "")).strip().lower() == "estudiante":
+                id_u = str(u.get("id_usuario", "")).strip()
+                info_est = mapa_est.get(id_u, {})
+                combinado = dict(u)
+                combinado["doc_id"] = id_u
+                combinado["nombre_mostrar"] = f"{str(u.get('nombres', '')).strip()} {str(u.get('apellidos', '')).strip()}".strip() or id_u
+                combinado["edad"] = self._a_int(info_est.get("edad", 0), 0)
+                combinado["direccion"] = str(info_est.get("direccion", ""))
+                combinado["fecha_inicio"] = str(info_est.get("fecha_inicio", ""))
+                combinado["fecha_fin"] = str(info_est.get("fecha_fin", ""))
+                combinado["cantidad_horas"] = self._a_int(info_est.get("cantidad_horas", 500), 500)
+                combinado["nombre_escuela"] = str(info_est.get("nombre_escuela", ""))
+                lista.append(combinado)
         return lista
 
     @staticmethod
@@ -355,16 +338,16 @@ class FirebaseMobileClient:
             return 4
 
     def obtener_horas_hechas_alumno(self, datos_alumno: dict):
-        id_est = str(datos_alumno.get("doc_id") or datos_alumno.get("id_usuario") or datos_alumno.get("usuario")).strip()
+        id_est = str(datos_alumno.get("id_usuario") or datos_alumno.get("doc_id") or datos_alumno.get("usuario")).strip()
 
-        # Refrescar horas restantes actuales desde la pestaña 'usuarios'
-        for u in self._sheet_leer("usuarios"):
-            if str(u.get("doc_id", "")).strip() == id_est or str(u.get("id_usuario", "")).strip() == id_est:
-                if u.get("cantidad_horas") != "":
-                    datos_alumno["cantidad_horas"] = self._a_int(u.get("cantidad_horas", 480), 480)
+        # Refrescar horas restantes actuales desde la pestaña 'Estudiante'
+        for es in self._sheet_leer("Estudiante"):
+            if str(es.get("id_usuario", "")).strip() == id_est:
+                if es.get("cantidad_horas") != "":
+                    datos_alumno["cantidad_horas"] = self._a_int(es.get("cantidad_horas", 500), 500)
                 break
 
-        todos_horas = self._sheet_leer("control_horas")
+        todos_horas = self._sheet_leer("ControlHoras")
         lista = []
         for d in todos_horas:
             if str(d.get("id_estudiante", "")).strip() == id_est:
@@ -372,7 +355,8 @@ class FirebaseMobileClient:
                 if horas <= 0:
                     horas = self._calcular_horas_dia(d.get("hora_entrada", ""), d.get("hora_salida", ""))
                 lista.append({
-                    "doc_id": str(d.get("doc_id", "")),
+                    "doc_id": str(d.get("id", "")),
+                    "id": str(d.get("id", "")),
                     "fecha": str(d.get("fecha", "")),
                     "hora_entrada": str(d.get("hora_entrada", "")),
                     "hora_salida": str(d.get("hora_salida", "")),
@@ -385,22 +369,19 @@ class FirebaseMobileClient:
         if self._a_bool(reg_hora.get("validado", False)):
             return False, "No puedes eliminar un registro de horas que ya fue validado."
 
-        doc_id_hora = str(reg_hora.get("doc_id", "")).strip()
-        if not doc_id_hora:
+        id_hora = str(reg_hora.get("id") or reg_hora.get("doc_id", "")).strip()
+        if not id_hora:
             return False, "No se encontró el identificador de este registro."
 
-        ok = self._sheet_eliminar("control_horas", doc_id_hora)
+        ok = self._sheet_eliminar("ControlHoras", "id", id_hora)
         return ok, "Registro de horas eliminado correctamente." if ok else "Error al eliminar en Google Sheets."
 
     def agregar_horas_estudiante(self, datos_alumno: dict, hora_entrada: str, hora_salida: str):
-        id_est = str(datos_alumno.get("doc_id") or datos_alumno.get("id_usuario") or datos_alumno.get("usuario")).strip()
+        id_est = str(datos_alumno.get("id_usuario") or datos_alumno.get("doc_id") or datos_alumno.get("usuario")).strip()
         fecha_hoy = datetime.now().strftime("%d/%m/%Y")
         horas_calc = self._calcular_horas_dia(hora_entrada, hora_salida)
 
-        doc_h_id = f"HR-{int(datetime.now().timestamp()) % 1000000}"
         nuevo_registro = {
-            "doc_id": doc_h_id,
-            "id": doc_h_id,
             "id_estudiante": id_est,
             "hora_entrada": hora_entrada.strip(),
             "hora_salida": hora_salida.strip(),
@@ -408,35 +389,33 @@ class FirebaseMobileClient:
             "horas_calculadas": horas_calc,
             "validado": False
         }
-        ok = self._sheet_guardar("control_horas", doc_h_id, nuevo_registro)
+        ok = self._sheet_insert_auto_id("ControlHoras", nuevo_registro)
         return ok, f"Horas registradas ({horas_calc} hrs)." if ok else "Error al guardar horas."
 
     def enviar_justificacion_estudiante(self, datos_alumno: dict, fecha: str, justificacion: str):
-        id_est = str(datos_alumno.get("doc_id") or datos_alumno.get("id_usuario") or datos_alumno.get("usuario")).strip()
-        doc_j_id = f"JUS-{int(datetime.now().timestamp()) % 1000000}"
+        id_est = str(datos_alumno.get("id_usuario") or datos_alumno.get("doc_id") or datos_alumno.get("usuario")).strip()
 
         nueva_just = {
-            "doc_id": doc_j_id,
-            "id": doc_j_id,
             "id_estudiante": id_est,
             "fecha": fecha.strip(),
             "descripcion_justificacion": justificacion.strip(),
             "validado": False
         }
-        ok = self._sheet_guardar("control_justificaciones", doc_j_id, nueva_just)
+        ok = self._sheet_insert_auto_id("ControlJustificaciones", nueva_just)
         return ok, "Justificación enviada exitosamente." if ok else "Error al enviar justificación."
 
     def obtener_lista_empleados_movil(self):
-        todos = self._sheet_leer("usuarios")
+        todos = self._sheet_leer("Usuario")
         lista = []
         for d in todos:
             if str(d.get("rol", "")).strip().lower() in ["empleado", "admin"]:
-                d["nombre_completo"] = f"{str(d.get('nombres', '')).strip()} {str(d.get('apellidos', '')).strip()}".strip() or str(d.get("doc_id", ""))
+                d["numero_empleado"] = str(d.get("id_usuario", "")).strip()
+                d["nombre_completo"] = f"{str(d.get('nombres', '')).strip()} {str(d.get('apellidos', '')).strip()}".strip() or d["numero_empleado"]
                 lista.append(d)
         return lista
 
     def obtener_inventario_por_empleado(self, tipo_inventario: str, nombre_empleado="Todos", id_empleado=""):
-        hoja = "inventariables" if tipo_inventario.lower() == "inventariables" else "no_inventariables"
+        hoja = "Inventariable" if tipo_inventario.lower() == "inventariables" else "NoInventariable"
         todos = self._sheet_leer(hoja)
 
         if nombre_empleado == "Todos":

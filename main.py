@@ -41,7 +41,7 @@ class AppSICADMovil:
         self.mostrar_login()
 
     def _configurar_pagina(self):
-        self.page.title = "SICCAD MOVIL"
+        self.page.title = "SICCAD"
         self.page.bgcolor = COLOR_MORADO_FONDO
         self.page.padding = 0
         self.page.theme_mode = ft.ThemeMode.LIGHT

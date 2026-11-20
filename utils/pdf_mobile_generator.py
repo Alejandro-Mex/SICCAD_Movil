@@ -1,11 +1,12 @@
 import os
 from datetime import datetime
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.graphics.shapes import Drawing, Rect, String
+from fpdf import FPDF
+
+
+def _limpiar_latin1(texto) -> str:
+    """ Convierte caracteres especiales a latin-1 seguro para FPDF estándar en Android """
+    s = str(texto or "").replace("—", "-").replace("–", "-")
+    return s.encode("latin-1", "replace").decode("latin-1")
 
 
 def obtener_ruta_descargas(nombre_archivo: str) -> str:
@@ -23,7 +24,8 @@ def obtener_ruta_descargas(nombre_archivo: str) -> str:
 
 def generar_pdf_inventario_movil(tipo_inventario: str, items: list, nombre_empleado_filtro="Todos") -> tuple:
     """
-    Genera PDF horizontal de Bienes Inventariables o No Inventariables filtrado por empleado (sin logo).
+    Genera PDF en orientación HORIZONTAL (Landscape) de Bienes Inventariables o No Inventariables
+    usando FPDF (100% puro Python, 100% compatible con APK Android) y SIN logo.
     """
     try:
         fecha_emision = datetime.now().strftime("%d/%m/%Y")
@@ -34,79 +36,85 @@ def generar_pdf_inventario_movil(tipo_inventario: str, items: list, nombre_emple
         nombre_pdf = f"Reporte_{'Inventariables' if es_inv else 'No_Inventariables'}_{emp_limpio}_{fecha_file}.pdf"
         ruta_final = obtener_ruta_descargas(nombre_pdf)
 
-        doc = SimpleDocTemplate(
-            ruta_final, pagesize=landscape(letter),
-            leftMargin=26, rightMargin=26, topMargin=24, bottomMargin=24
-        )
-        elementos = []
+        # Hoja Carta en Horizontal ('L' = Landscape, mm, 'Letter' -> 279.4 x 215.9 mm)
+        pdf = FPDF(orientation="L", unit="mm", format="Letter")
+        pdf.set_auto_page_break(auto=True, margin=12)
+        pdf.add_page()
 
-        ancho_banner = 740
-        alto_banner = 60
-        banner = Drawing(ancho_banner, alto_banner)
-        banner.add(Rect(0, 0, ancho_banner, alto_banner, rx=10, ry=10, fillColor=colors.HexColor("#553a8f"), strokeColor=colors.HexColor("#553a8f")))
-        subtitulo = f"Ayuntamiento de Mérida — Padrón de Bienes {'Inventariables' if es_inv else 'No Inventariables'} ({nombre_empleado_filtro})"
-        banner.add(String(22, 35, "Centro de Alfabetización Digital", fontName="Helvetica-Bold", fontSize=16, fillColor=colors.white))
-        banner.add(String(22, 17, subtitulo, fontName="Helvetica", fontSize=10, fillColor=colors.white))
-        banner.add(String(ancho_banner - 18, 35, f"Fecha de emisión: {fecha_emision}", fontName="Helvetica-Bold", fontSize=10, fillColor=colors.white, textAnchor="end"))
-        banner.add(String(ancho_banner - 18, 19, f"Total de registros: {len(items)}", fontName="Helvetica-Bold", fontSize=10, fillColor=colors.white, textAnchor="end"))
+        # 1. BANNER SUPERIOR MORADO (#553a8f -> RGB 85, 58, 143) SIN LOGO
+        pdf.set_fill_color(85, 58, 143)
+        pdf.rect(10, 10, 259, 22, style="F")
 
-        elementos.append(banner)
-        elementos.append(Spacer(1, 14))
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 15)
+        pdf.set_xy(15, 13)
+        pdf.cell(160, 7, _limpiar_latin1("Centro de Alfabetización Digital"), ln=0)
 
-        estilos = getSampleStyleSheet()
-        est_izq = ParagraphStyle("I", parent=estilos["Normal"], fontName="Helvetica", fontSize=8.5, leading=11, alignment=TA_LEFT)
-        est_cen = ParagraphStyle("C", parent=estilos["Normal"], fontName="Helvetica", fontSize=8.5, leading=11, alignment=TA_CENTER)
-        est_hdr = ParagraphStyle("H", parent=estilos["Normal"], fontName="Helvetica-Bold", fontSize=9, alignment=TA_CENTER)
-        est_tit = ParagraphStyle("T", parent=estilos["Normal"], fontName="Helvetica-Bold", fontSize=10.5, alignment=TA_CENTER)
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_xy(190, 13)
+        pdf.cell(74, 6, _limpiar_latin1(f"Fecha de emisión: {fecha_emision}"), align="R")
 
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_xy(15, 21)
+        sub = f"Ayuntamiento de Mérida - Padrón de Bienes {'Inventariables' if es_inv else 'No Inventariables'} ({nombre_empleado_filtro})"
+        pdf.cell(175, 6, _limpiar_latin1(sub), ln=0)
+
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_xy(190, 20)
+        pdf.cell(74, 6, _limpiar_latin1(f"Total de registros: {len(items)}"), align="R")
+
+        pdf.set_xy(10, 38)
+        pdf.set_text_color(0, 0, 0)
+
+        # 2. TÍTULO DE LA TABLA (Gris claro #F2F4F8)
+        pdf.set_fill_color(242, 244, 248)
+        pdf.set_font("Helvetica", "B", 10.5)
+        tit_tabla = f"Reporte General de Bienes {'Inventariables' if es_inv else 'No Inventariables'} - {nombre_empleado_filtro}"
+        pdf.cell(259, 8, _limpiar_latin1(tit_tabla), border=1, ln=1, align="C", fill=True)
+
+        # 3. ENCABEZADOS AMARILLOS (#FCCb2d -> RGB 252, 203, 45)
+        pdf.set_fill_color(252, 203, 45)
         if es_inv:
-            datos_tabla = [
-                [Paragraph(f"Reporte de Bienes Inventariables — {nombre_empleado_filtro}", est_tit), "", "", "", "", "", "", "", ""],
-                [
-                    Paragraph("Folio", est_hdr), Paragraph("Marca", est_hdr), Paragraph("Modelo", est_hdr),
-                    Paragraph("Descripción", est_hdr), Paragraph("N° Serie", est_hdr), Paragraph("Estado", est_hdr),
-                    Paragraph("Ubicación", est_hdr), Paragraph("Unidad Admin.", est_hdr), Paragraph("Encargado", est_hdr)
-                ]
+            cols = [
+                ("Folio", 22), ("Marca", 24), ("Modelo", 28), ("Descripción", 44),
+                ("N° Serie", 25), ("Estado", 20), ("Ubicación", 26), ("Unidad Admin.", 30), ("Encargado", 40)
             ]
-            for it in items:
-                datos_tabla.append([
-                    Paragraph(str(it.get("folio", "")), est_cen), Paragraph(str(it.get("marca", "")), est_cen),
-                    Paragraph(str(it.get("modelo", "")), est_cen), Paragraph(str(it.get("descripcion", "")), est_izq),
-                    Paragraph(str(it.get("numero_serie", "")), est_cen), Paragraph(str(it.get("estado", "")), est_cen),
-                    Paragraph(str(it.get("ubicacion", "")), est_cen), Paragraph(str(it.get("unidad_admin", "")), est_cen),
-                    Paragraph(str(it.get("nombre_encargado", "")), est_izq)
-                ])
-            anchos = [62, 68, 82, 118, 72, 62, 74, 86, 116]
-            ult_col = 8
-        else:
-            datos_tabla = [
-                [Paragraph(f"Reporte de Bienes No Inventariables — {nombre_empleado_filtro}", est_tit), "", "", ""],
-                [Paragraph("Clave", est_hdr), Paragraph("Descripción", est_hdr), Paragraph("Ubicación", est_hdr), Paragraph("Encargado", est_hdr)]
-            ]
-            for it in items:
-                datos_tabla.append([
-                    Paragraph(str(it.get("clave", "")), est_cen),
-                    Paragraph(str(it.get("descripcion", "")), est_izq),
-                    Paragraph(str(it.get("ubicacion", "")), est_cen),
-                    Paragraph(str(it.get("nombre_encargado", "")), est_izq)
-                ])
-            anchos = [155, 225, 165, 195]
-            ult_col = 3
+            pdf.set_font("Helvetica", "B", 8.5)
+            for titulo, ancho in cols:
+                pdf.cell(ancho, 8, _limpiar_latin1(titulo), border=1, align="C", fill=True)
+            pdf.ln()
 
-        tabla = Table(datos_tabla, colWidths=anchos, repeatRows=2)
-        tabla.setStyle(TableStyle([
-            ("SPAN", (0, 0), (ult_col, 0)),
-            ("BACKGROUND", (0, 0), (ult_col, 0), colors.HexColor("#F2F4F8")),
-            ("ALIGN", (0, 0), (ult_col, 0), "CENTER"),
-            ("BACKGROUND", (0, 1), (ult_col, 1), colors.HexColor("#FCCb2d")),
-            ("ALIGN", (0, 1), (ult_col, 1), "CENTER"),
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        elementos.append(tabla)
-        doc.build(elementos)
+            pdf.set_font("Helvetica", "", 8)
+            for it in items:
+                vals = [
+                    str(it.get("folio", "")), str(it.get("marca", "")), str(it.get("modelo", "")),
+                    str(it.get("descripcion", ""))[:32], str(it.get("numero_serie", "")),
+                    str(it.get("estado", "")), str(it.get("ubicacion", "")),
+                    str(it.get("unidad_admin", ""))[:18], str(it.get("nombre_encargado", ""))[:26]
+                ]
+                for idx, val in enumerate(vals):
+                    alinear = "L" if idx in [3, 8] else "C"
+                    pdf.cell(cols[idx][1], 8, _limpiar_latin1(val), border=1, align=alinear)
+                pdf.ln()
+        else:
+            cols = [("Clave", 55), ("Descripción", 84), ("Ubicación", 55), ("Encargado", 65)]
+            pdf.set_font("Helvetica", "B", 9.5)
+            for titulo, ancho in cols:
+                pdf.cell(ancho, 8, _limpiar_latin1(titulo), border=1, align="C", fill=True)
+            pdf.ln()
+
+            pdf.set_font("Helvetica", "", 9)
+            for it in items:
+                vals = [
+                    str(it.get("clave", "")), str(it.get("descripcion", ""))[:45],
+                    str(it.get("ubicacion", "")), str(it.get("nombre_encargado", ""))[:35]
+                ]
+                for idx, val in enumerate(vals):
+                    alinear = "L" if idx in [1, 3] else "C"
+                    pdf.cell(cols[idx][1], 8, _limpiar_latin1(val), border=1, align=alinear)
+                pdf.ln()
+
+        pdf.output(ruta_final)
 
         try:
             if os.name == "nt":
@@ -120,7 +128,7 @@ def generar_pdf_inventario_movil(tipo_inventario: str, items: list, nombre_emple
 
 
 def generar_pdf_horas_alumno_movil(datos_alumno: dict, registros: list) -> tuple:
-    """ Genera el PDF oficial de Reporte de Horas del Alumno (sin logo) """
+    """ Genera el PDF oficial de Reporte de Horas del Alumno (vertical, 20 renglones, SIN logo) """
     try:
         nombre_completo = f"{datos_alumno.get('nombres', '').strip()} {datos_alumno.get('apellidos', '').strip()}".strip() or datos_alumno.get("nombre_mostrar", "Alumno")
         escuela = datos_alumno.get("nombre_escuela", "").strip()
@@ -144,53 +152,80 @@ def generar_pdf_horas_alumno_movil(datos_alumno: dict, registros: list) -> tuple
 
         meta_total = int(datos_alumno.get("cantidad_horas", 480)) + total_hechas
 
-        doc = SimpleDocTemplate(ruta_final, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=28, bottomMargin=28)
-        elementos = []
+        # Hoja Carta Vertical ('P' = Portrait -> 215.9 x 279.4 mm)
+        pdf = FPDF(orientation="P", unit="mm", format="Letter")
+        pdf.set_auto_page_break(auto=True, margin=12)
+        pdf.add_page()
 
-        banner = Drawing(540, 62)
-        banner.add(Rect(0, 0, 540, 62, rx=10, ry=10, fillColor=colors.HexColor("#553a8f"), strokeColor=colors.HexColor("#553a8f")))
-        banner.add(String(22, 36, "Centro de Alfabetización Digital", fontName="Helvetica-Bold", fontSize=15, fillColor=colors.white))
-        banner.add(String(22, 18, "Ayuntamiento de Mérida — Reporte de Horas", fontName="Helvetica", fontSize=10.5, fillColor=colors.white))
-        banner.add(String(524, 36, f"Escuela: {escuela}", fontName="Helvetica-Bold", fontSize=9.5, fillColor=colors.white, textAnchor="end"))
-        banner.add(String(524, 20, f"Emisión: {fecha_emision}", fontName="Helvetica-Bold", fontSize=9.5, fillColor=colors.white, textAnchor="end"))
+        # 1. BANNER SUPERIOR MORADO (#553a8f) SIN LOGO
+        pdf.set_fill_color(85, 58, 143)
+        pdf.rect(12, 10, 192, 22, style="F")
 
-        elementos.append(banner)
-        elementos.append(Spacer(1, 16))
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.set_xy(17, 13)
+        pdf.cell(110, 7, _limpiar_latin1("Centro de Alfabetización Digital"))
 
-        estilos = getSampleStyleSheet()
-        est_c = ParagraphStyle("C", parent=estilos["Normal"], fontName="Helvetica", fontSize=9.5, alignment=TA_CENTER)
-        est_bc = ParagraphStyle("BC", parent=estilos["Normal"], fontName="Helvetica-Bold", fontSize=10, alignment=TA_CENTER)
-        est_bi = ParagraphStyle("BI", parent=estilos["Normal"], fontName="Helvetica-Bold", fontSize=9.5, alignment=TA_LEFT)
-        est_bd = ParagraphStyle("BD", parent=estilos["Normal"], fontName="Helvetica-Bold", fontSize=9.5, alignment=TA_RIGHT)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_xy(125, 13)
+        pdf.cell(74, 6, _limpiar_latin1(f"Escuela: {escuela}"), align="R")
 
-        datos_tabla = [
-            [Paragraph(nombre_completo, est_bc), "", "", ""],
-            [Paragraph("Fecha inicio:", est_bi), Paragraph(fecha_inicio, est_bd), Paragraph("Fecha final:", est_bi), Paragraph(fecha_fin, est_bd)],
-            [Paragraph("Fecha", est_bc), Paragraph("Hora entrada", est_bc), Paragraph("Hora salida", est_bc), Paragraph("Horas hechas", est_bc)]
-        ]
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_xy(17, 21)
+        pdf.cell(110, 6, _limpiar_latin1("Ayuntamiento de Mérida - Reporte de Horas"))
 
-        total_filas = max(20, len(filas_asist))
-        for i in range(total_filas):
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_xy(125, 20)
+        pdf.cell(74, 6, _limpiar_latin1(f"Emisión: {fecha_emision}"), align="R")
+
+        pdf.set_xy(12, 38)
+        pdf.set_text_color(0, 0, 0)
+
+        # 2. FILA 0: Nombre completo del alumno (Gris claro)
+        pdf.set_fill_color(242, 244, 248)
+        pdf.set_font("Helvetica", "B", 10.5)
+        pdf.cell(192, 8.5, _limpiar_latin1(nombre_completo), border=1, ln=1, align="C", fill=True)
+
+        # 3. FILA 1: Fechas de inicio y final
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_x(12)
+        pdf.cell(48, 8, _limpiar_latin1("Fecha inicio:"), border=1, align="L")
+        pdf.cell(48, 8, _limpiar_latin1(fecha_inicio), border=1, align="R")
+        pdf.cell(48, 8, _limpiar_latin1("Fecha final:"), border=1, align="L")
+        pdf.cell(48, 8, _limpiar_latin1(fecha_fin), border=1, ln=1, align="R")
+
+        # 4. FILA 2: Encabezados amarillos (#FCCb2d)
+        pdf.set_fill_color(252, 203, 45)
+        pdf.set_x(12)
+        for col_tit in ["Fecha", "Hora entrada", "Hora salida", "Horas hechas"]:
+            pdf.cell(48, 8.5, _limpiar_latin1(col_tit), border=1, align="C", fill=True)
+        pdf.ln()
+
+        # 5. FILAS DE ASISTENCIA + RELLENO HASTA 20 RENGLONES
+        pdf.set_font("Helvetica", "", 9.5)
+        total_renglones = max(20, len(filas_asist))
+        for i in range(total_renglones):
+            pdf.set_x(12)
             if i < len(filas_asist):
-                datos_tabla.append([Paragraph(x, est_c) for x in filas_asist[i]])
+                f_str, he_str, hs_str, hh_str = filas_asist[i]
+                pdf.cell(48, 7.8, _limpiar_latin1(f_str), border=1, align="C")
+                pdf.cell(48, 7.8, _limpiar_latin1(he_str), border=1, align="C")
+                pdf.cell(48, 7.8, _limpiar_latin1(hs_str), border=1, align="C")
+                pdf.cell(48, 7.8, _limpiar_latin1(hh_str), border=1, ln=1, align="C")
             else:
-                datos_tabla.append(["", "", "", ""])
+                pdf.cell(48, 7.8, "", border=1)
+                pdf.cell(48, 7.8, "", border=1)
+                pdf.cell(48, 7.8, "", border=1)
+                pdf.cell(48, 7.8, "", border=1, ln=1)
 
-        ult_fila = len(datos_tabla)
-        datos_tabla.append([Paragraph("Total de horas hechas:", est_bd), "", "", Paragraph(f"{total_hechas} / {meta_total}", est_bc)])
+        # 6. ÚLTIMA FILA: Total de horas hechas
+        pdf.set_fill_color(242, 244, 248)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_x(12)
+        pdf.cell(144, 8.5, _limpiar_latin1("Total de horas hechas:  "), border=1, align="R", fill=True)
+        pdf.cell(48, 8.5, _limpiar_latin1(f"{total_hechas} / {meta_total}"), border=1, ln=1, align="C", fill=True)
 
-        tabla = Table(datos_tabla, colWidths=[135, 135, 135, 135], rowHeights=[24, 22, 24] + [21] * total_filas + [24], repeatRows=3)
-        tabla.setStyle(TableStyle([
-            ("SPAN", (0, 0), (3, 0)),
-            ("BACKGROUND", (0, 0), (3, 0), colors.HexColor("#F2F4F8")),
-            ("BACKGROUND", (0, 2), (3, 2), colors.HexColor("#FCCb2d")),
-            ("SPAN", (0, ult_fila), (2, ult_fila)),
-            ("BACKGROUND", (0, ult_fila), (3, ult_fila), colors.HexColor("#F2F4F8")),
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        elementos.append(tabla)
-        doc.build(elementos)
+        pdf.output(ruta_final)
 
         try:
             if os.name == "nt":

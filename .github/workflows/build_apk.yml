@@ -32,7 +32,7 @@ jobs:
       - name: Compilar APK en Pantalla Completa sin Barra de Notificaciones
         run: |
           yes | flutter doctor --android-licenses || true
-          pip install "flet==0.24.1" "packaging<24.0" requests reportlab
+          pip install "flet==0.24.1" "packaging<24.0" requests "fpdf==1.7.2"
           python -c "import flet.cli.commands.build as b, inspect; p = inspect.getfile(b); txt = open(p).read(); open(p, 'w').write(txt.replace('yaml.dump(pubspec, f)', 'pubspec[\"dependency_overrides\"] = {\"wakelock_plus\": \"1.2.8\", \"package_info_plus\": \"8.0.2\"}; yaml.dump(pubspec, f)'))"
           flet build apk --project "siccad_movil" --product "SICCAD MOVIL" --description "Sistema Movil SICCAD Merida" --no-rich-output -v
 

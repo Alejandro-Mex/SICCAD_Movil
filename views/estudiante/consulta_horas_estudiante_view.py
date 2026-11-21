@@ -12,9 +12,9 @@ class ConsultaHorasEstudianteView(ft.Container):
     """
     Pantalla de Consulta de Horas del Estudiante:
     - Tabla (Fecha | Horas) con selección de fila.
-    - Botón 'Eliminar' (Rojo): Borra la hora seleccionada SOLO si aún no está validada (roja).
-    - Botón 'Imprimir PDF': Genera el reporte de horas del alumno.
-    - Botón 'Justificación'.
+    - Muestra 'Horas restantes:' actualizadas en tiempo real desde Google Sheets.
+    - Botón 'Eliminar hora' (solo para filas rojas no validadas).
+    - Botón 'Imprimir PDF' y botón 'Justificación'.
     """
     def __init__(self, page: ft.Page, datos_estudiante: dict, al_regresar, ir_a_justificacion=None):
         super().__init__()
@@ -28,10 +28,12 @@ class ConsultaHorasEstudianteView(ft.Container):
         self.bgcolor = COLOR_MORADO_FONDO
         self.padding = ft.padding.symmetric(horizontal=20, vertical=10)
 
+        # 1. Consultar primero las horas y el saldo actualizado en 1 sola llamada rápida
         self.registros_horas = self.firebase.obtener_horas_hechas_alumno(self.datos_estudiante)
         self.indice_seleccionado = None
         self.columna_filas = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
 
+        # 2. Construir la interfaz ya con las horas restantes frescas
         self.content = self._construir_interfaz()
         self._renderizar_filas()
 
@@ -71,15 +73,21 @@ class ConsultaHorasEstudianteView(ft.Container):
             content=ft.Column(spacing=3, controls=[header_tabla, ft.Container(expand=True, content=self.columna_filas)])
         )
 
-        horas_restantes_val = str(self.datos_estudiante.get("cantidad_horas", 480))
+        # Texto reactivo de Horas restantes (actualizado con self.datos_estudiante['horas_restantes'])
+        horas_restantes_val = str(
+            self.datos_estudiante.get("horas_restantes", self.datos_estudiante.get("cantidad_horas", 500))
+        )
+        self.lbl_horas_restantes = ft.Text(
+            horas_restantes_val,
+            font_family=FAMILIA_FUENTE, size=18, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO
+        )
         caja_horas_restantes = ft.Container(
             width=335, height=46, bgcolor=COLOR_BLANCO, border_radius=14,
             border=ft.border.all(2.5, COLOR_AMARILLO_TARJETA), padding=ft.padding.symmetric(horizontal=18),
             alignment=ft.alignment.center_left,
-            content=ft.Text(horas_restantes_val, font_family=FAMILIA_FUENTE, size=18, weight=ft.FontWeight.BOLD, color=COLOR_MORADO_FONDO)
+            content=self.lbl_horas_restantes
         )
 
-        # Fila de botones de acción: Eliminar (solo no validadas) | Imprimir PDF
         btn_eliminar = ft.ElevatedButton(
             content=ft.Text("Eliminar hora", font_family=FAMILIA_FUENTE, size=14, weight=ft.FontWeight.BOLD, color=COLOR_BLANCO),
             bgcolor=COLOR_ROJO_ELIMINAR, width=160, height=44,
@@ -194,6 +202,9 @@ class ConsultaHorasEstudianteView(ft.Container):
         exito, msg = self.firebase.eliminar_hora_no_validada_estudiante(self.datos_estudiante, reg)
         if exito:
             self.registros_horas = self.firebase.obtener_horas_hechas_alumno(self.datos_estudiante)
+            self.lbl_horas_restantes.value = str(
+                self.datos_estudiante.get("horas_restantes", self.datos_estudiante.get("cantidad_horas", 500))
+            )
             self.indice_seleccionado = None
             self._renderizar_filas()
         self.mostrar_alerta("Eliminado" if exito else "No permitido", msg)

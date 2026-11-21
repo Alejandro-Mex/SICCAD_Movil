@@ -21,6 +21,7 @@ class FirebaseMobileClient:
 
     def _inicializar(self):
         self.api_url = GOOGLE_SHEETS_API_URL
+        self.session = requests.Session()
         self.usuario_actual = None
         self.claves_en_rojo = set()
         self.folios_en_rojo = set()
@@ -101,62 +102,57 @@ class FirebaseMobileClient:
             print(f"Error eliminando en pestaña '{nombre_hoja}': {e}")
             return False
 
-    # ================= LOGIN DUAL (UNIENDO Usuario + Empleado / Estudiante) =================
     def validar_login_movil_empleado(self, usuario: str, password: str):
         usuario = str(usuario).strip()
         password = str(password).strip()
         pass_hash = self.encriptar_password(password)
 
         try:
-            usuarios = self._sheet_leer("Usuario")
-            for u in usuarios:
-                ids_posibles = [
-                    str(u.get("id_usuario", "")).strip(),
-                    str(u.get("usuario", "")).strip()
-                ]
-                if usuario in ids_posibles:
-                    pass_guardada = str(u.get("contrasena", "")).strip()
-                    pass_vis = str(u.get("password_visible", "")).strip()
-                    if pass_guardada in [pass_hash, password] or (pass_vis and pass_vis == password):
-                        id_u = str(u.get("id_usuario", "")).strip()
-                        rol = str(u.get("rol", "")).strip().lower()
+            resp = self.session.get(
+                self.api_url,
+                params={"sheet": "LOGIN", "usuario": usuario},
+                timeout=15,
+                allow_redirects=True
+            )
+            if resp.status_code != 200:
+                return False, "No se pudo conectar con Google Sheets."
 
-                        perfil = dict(u)
-                        perfil["doc_id"] = id_u
-                        perfil["numero_empleado"] = id_u
-                        perfil["password_visible"] = password
+            js = resp.json()
+            if not js.get("ok") or not js.get("usuario"):
+                return False, "Usuario o contraseña incorrectos."
 
-                        if rol in ["admin", "empleado"]:
-                            # Unir con la pestaña 'Empleado' para leer sus permisos exactos
-                            empleados = self._sheet_leer("Empleado")
-                            emp_row = next(
-                                (e for e in empleados if str(e.get("numero_empleado", "")).strip() == id_u),
-                                {}
-                            )
-                            perfil["es_admin"] = (rol == "admin")
-                            perfil["per_inventariables"] = True if rol == "admin" else self._a_bool(emp_row.get("per_inventariables", False))
-                            perfil["per_no_inventariables"] = True if rol == "admin" else self._a_bool(emp_row.get("per_no_inventariables", False))
-                            perfil["per_servicio_social"] = True if rol == "admin" else self._a_bool(emp_row.get("per_servicio_social", False))
-                            perfil["per_bienes_consumo"] = True if rol == "admin" else self._a_bool(emp_row.get("per_bienes_consumo", False))
+            u = js["usuario"]
+            extra = js.get("extra", {})
 
-                        elif rol == "estudiante":
-                            # Unir con la pestaña 'Estudiante' para leer sus horas, escuela y fechas
-                            estudiantes = self._sheet_leer("Estudiante")
-                            est_row = next(
-                                (es for es in estudiantes if str(es.get("id_usuario", "")).strip() == id_u),
-                                {}
-                            )
-                            perfil["edad"] = self._a_int(est_row.get("edad", 0), 0)
-                            perfil["direccion"] = str(est_row.get("direccion", ""))
-                            perfil["fecha_inicio"] = str(est_row.get("fecha_inicio", ""))
-                            perfil["fecha_fin"] = str(est_row.get("fecha_fin", ""))
-                            perfil["cantidad_horas"] = self._a_int(est_row.get("cantidad_horas", 500), 500)
-                            perfil["nombre_escuela"] = str(est_row.get("nombre_escuela", ""))
+            pass_guardada = str(u.get("contrasena", "")).strip()
+            pass_vis = str(u.get("password_visible", "")).strip()
+            if pass_guardada not in [pass_hash, password] and not (pass_vis and pass_vis == password):
+                return False, "Usuario o contraseña incorrectos."
 
-                        self.usuario_actual = perfil
-                        return True, perfil
+            id_u = str(u.get("id_usuario", "")).strip()
+            rol = str(u.get("rol", "")).strip().lower()
 
-            return False, "Usuario o contraseña incorrectos."
+            perfil = dict(u)
+            perfil["doc_id"] = id_u
+            perfil["numero_empleado"] = id_u
+            perfil["password_visible"] = password
+
+            if rol in ["admin", "empleado"]:
+                perfil["es_admin"] = (rol == "admin")
+                perfil["per_inventariables"] = True if rol == "admin" else self._a_bool(extra.get("per_inventariables", False))
+                perfil["per_no_inventariables"] = True if rol == "admin" else self._a_bool(extra.get("per_no_inventariables", False))
+                perfil["per_servicio_social"] = True if rol == "admin" else self._a_bool(extra.get("per_servicio_social", False))
+                perfil["per_bienes_consumo"] = True if rol == "admin" else self._a_bool(extra.get("per_bienes_consumo", False))
+            elif rol == "estudiante":
+                perfil["edad"] = self._a_int(extra.get("edad", 0), 0)
+                perfil["direccion"] = str(extra.get("direccion", ""))
+                perfil["fecha_inicio"] = str(extra.get("fecha_inicio", ""))
+                perfil["fecha_fin"] = str(extra.get("fecha_fin", ""))
+                perfil["cantidad_horas"] = self._a_int(extra.get("cantidad_horas", 500), 500)
+                perfil["nombre_escuela"] = str(extra.get("nombre_escuela", ""))
+
+            self.usuario_actual = perfil
+            return True, perfil
         except Exception as e:
             return False, f"Error de conexión con Google Sheets:\n{e}"
 
@@ -339,30 +335,56 @@ class FirebaseMobileClient:
 
     def obtener_horas_hechas_alumno(self, datos_alumno: dict):
         id_est = str(datos_alumno.get("id_usuario") or datos_alumno.get("doc_id") or datos_alumno.get("usuario")).strip()
-
-        # Refrescar horas restantes actuales desde la pestaña 'Estudiante'
-        for es in self._sheet_leer("Estudiante"):
-            if str(es.get("id_usuario", "")).strip() == id_est:
-                if es.get("cantidad_horas") != "":
-                    datos_alumno["cantidad_horas"] = self._a_int(es.get("cantidad_horas", 500), 500)
-                break
-
-        todos_horas = self._sheet_leer("ControlHoras")
         lista = []
-        for d in todos_horas:
-            if str(d.get("id_estudiante", "")).strip() == id_est:
-                horas = self._a_int(d.get("horas_calculadas", 0), 0)
-                if horas <= 0:
-                    horas = self._calcular_horas_dia(d.get("hora_entrada", ""), d.get("hora_salida", ""))
-                lista.append({
-                    "doc_id": str(d.get("id", "")),
-                    "id": str(d.get("id", "")),
-                    "fecha": str(d.get("fecha", "")),
-                    "hora_entrada": str(d.get("hora_entrada", "")),
-                    "hora_salida": str(d.get("hora_salida", "")),
-                    "horas": horas,
-                    "validado": self._a_bool(d.get("validado", False))
-                })
+        total_validadas = 0
+
+        try:
+            resp = self.session.get(
+                self.api_url,
+                params={"sheet": "HORAS_ALUMNO", "id_estudiante": id_est},
+                timeout=15,
+                allow_redirects=True
+            )
+            if resp.status_code == 200:
+                js = resp.json()
+                if js.get("ok"):
+                    est_info = js.get("estudiante", {})
+                    horas_raw = js.get("horas", [])
+
+                    for d in horas_raw:
+                        horas = self._a_int(d.get("horas_calculadas", 0), 0)
+                        if horas <= 0:
+                            horas = self._calcular_horas_dia(d.get("hora_entrada", ""), d.get("hora_salida", ""))
+                        es_val = self._a_bool(d.get("validado", False))
+                        if es_val:
+                            total_validadas += horas
+
+                        lista.append({
+                            "doc_id": str(d.get("id", "")),
+                            "id": str(d.get("id", "")),
+                            "fecha": str(d.get("fecha", "")),
+                            "hora_entrada": str(d.get("hora_entrada", "")),
+                            "hora_salida": str(d.get("hora_salida", "")),
+                            "horas": horas,
+                            "validado": es_val
+                        })
+
+                    # Actualizar Horas Restantes reales:
+                    # En tu BD 'Estudiante.cantidad_horas' es la meta (ej. 500), así que restamos las horas validadas
+                    meta_sheet = self._a_int(est_info.get("cantidad_horas", datos_alumno.get("cantidad_horas", 500)), 500)
+                    datos_alumno["meta_horas"] = meta_sheet
+                    datos_alumno["horas_restantes"] = max(0, meta_sheet - total_validadas)
+                    datos_alumno["cantidad_horas"] = datos_alumno["horas_restantes"]
+
+                    if est_info.get("fecha_inicio"):
+                        datos_alumno["fecha_inicio"] = str(est_info.get("fecha_inicio"))
+                    if est_info.get("fecha_fin"):
+                        datos_alumno["fecha_fin"] = str(est_info.get("fecha_fin"))
+                    if est_info.get("nombre_escuela"):
+                        datos_alumno["nombre_escuela"] = str(est_info.get("nombre_escuela"))
+        except Exception as e:
+            print(f"Error consultando horas del alumno: {e}")
+
         return lista
 
     def eliminar_hora_no_validada_estudiante(self, datos_alumno: dict, reg_hora: dict):

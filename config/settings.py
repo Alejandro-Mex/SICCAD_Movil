@@ -16,4 +16,4 @@ ALTO_MOVIL = 820
 # CONFIGURACIÓN DE TU PROYECTO FIREBASE (Misma BD que la versión de escritorio)
 # Cuando conectes a producción, aquí solo pones el project_id que viene en tu serviceAccountKey.json
 # URL DE TU GOOGLE APPS SCRIPT (BASE DE DATOS EN GOOGLE SHEETS)
-GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbyslqzN1JgfUNAY0wzO40orGHgx5BqOzLyIKwT-yhWLV9sH_UcEhNhxeZYbgf2sAAOt/exec"
+GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbyVC02qtIrTLKzzVhvaqw2XuFbMLnfNfeVQxGLCAv294dTW8owfcoMGDJlRI_yzEubD/exec"
